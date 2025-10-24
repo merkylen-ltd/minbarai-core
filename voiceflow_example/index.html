@@ -1,0 +1,692 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>VoiceFlow Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+      button { font: inherit; padding: .6rem 1rem; border: 1px solid #ccc; border-radius: .25rem; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      button.active { background: #0a7; color: white; border-color: #0a7; }
+      #out { margin-top: 1rem; white-space: pre-wrap; border: 1px solid #ddd; padding: .75rem; border-radius: .5rem; min-height: 6rem; overflow-y: auto; max-height: 300px; scroll-behavior: smooth; }
+      #translationOut { overflow-y: auto; max-height: 300px; scroll-behavior: smooth; }
+      .final { color: #0a7; }
+      .interim { color: #555; }
+      .row { margin: .5rem 0; }
+      .status { margin-top: 1rem; padding: .5rem; border-radius: .25rem; font-weight: bold; }
+      .status.listening { background: #e8f5e8; color: #0a7; border: 1px solid #0a7; }
+      .status.stopped { background: #f5f5f5; color: #666; border: 1px solid #ddd; }
+      .status.error { background: #ffe8e8; color: #c00; border: 1px solid #c00; }
+      .pulse { animation: pulse 1.5s ease-in-out infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      
+      /* Login styles */
+      #loginContainer { 
+        position: fixed; 
+        top: 0; 
+        left: 0; 
+        width: 100%; 
+        height: 100%; 
+        background: rgba(0, 0, 0, 0.8); 
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        z-index: 1000; 
+      }
+      #loginForm { 
+        background: white; 
+        padding: 2rem; 
+        border-radius: 0.5rem; 
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); 
+        text-align: center; 
+        min-width: 300px; 
+      }
+      #loginForm h2 { 
+        margin-top: 0; 
+        color: #333; 
+        margin-bottom: 1.5rem; 
+      }
+      #loginForm input { 
+        width: 100%; 
+        padding: 0.75rem; 
+        margin-bottom: 1rem; 
+        border: 1px solid #ddd; 
+        border-radius: 0.25rem; 
+        font-size: 1rem; 
+        box-sizing: border-box; 
+      }
+      #loginForm button { 
+        width: 100%; 
+        padding: 0.75rem; 
+        background: #0a7; 
+        color: white; 
+        border: none; 
+        border-radius: 0.25rem; 
+        font-size: 1rem; 
+        cursor: pointer; 
+      }
+      #loginForm button:hover { 
+        background: #085; 
+      }
+      #errorMessage { 
+        color: #c00; 
+        margin-top: 1rem; 
+        font-size: 0.9rem; 
+      }
+      .hidden { 
+        display: none !important; 
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Login Form -->
+    <div id="loginContainer">
+      <div id="loginForm">
+        <h2>🔐 WebSocket Authentication</h2>
+        <p>Please enter the WebSocket bearer token to access this application:</p>
+        <input type="password" id="passwordInput" placeholder="Enter your WebSocket bearer token..." autocomplete="off">
+        <button id="loginButton" onclick="checkPassword()">Connect</button>
+        <div id="errorMessage"></div>
+        <div style="margin-top: 1rem; font-size: 0.9em; color: #666;">
+          <strong>Note:</strong> This token is required for WebSocket authentication with the deployed service.
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Application Content -->
+    <div id="mainContent" class="hidden">
+      <h1>VoiceFlow (Advanced Speech Recognition Relay)</h1>
+    <div style="background: #e8f4fd; border: 1px solid #b3d9ff; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
+      <strong>🎤 G Infinite Streaming Demo:</strong> This demonstrates Google's official "infinite streaming" pattern with seamless stream rotation and audio bridging. Click "Start Continuous Listening" to begin. The system uses Google's recommended 4.8-minute stream rotation with audio overlap to ensure no words are lost. You can speak continuously for hours without interruption. Enable "Silent Mode" for a cleaner experience.
+    </div>
+    <div class="row">
+      <label>Language:
+        <select id="lang">
+          <option value="en-US" selected>English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="de-AT">German (Austria)</option>
+          <option value="ar-SA">Arabic</option>
+        </select>
+      </label>
+      <label style="margin-left:1rem;">
+        Model:
+        <select id="model">
+          <option value="latest_short" selected>latest_short</option>
+          <option value="latest_long">latest_long</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="start">Start Continuous Listening</button>
+      <button id="stop" disabled>Stop</button>
+      <label style="margin-left: 1rem;">
+        <input type="checkbox" id="silentMode" checked> Silent Mode (less verbose)
+      </label>
+    </div>
+    
+    <!-- Translation Controls -->
+    <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0;">
+      <h3 style="margin-top: 0; color: #495057;">🌐 Translation Settings</h3>
+      
+      <div class="row">
+        <label>
+          <input type="checkbox" id="translationEnabled"> Enable Translation
+        </label>
+        <button id="testTranslation" style="margin-left: 1rem;" disabled>Test Translation</button>
+      </div>
+      
+      <div id="translationConfig" style="display: none;">
+        <div class="row">
+          <label>Source Language:
+            <select id="sourceLanguage">
+              <option value="auto">Auto-detect</option>
+              <option value="en-US" selected>English (US)</option>
+              <option value="ar-SA">Arabic</option>
+              <option value="de-AT">German</option>
+              <option value="fr-FR">French</option>
+              <option value="es-ES">Spanish</option>
+            </select>
+          </label>
+          <label style="margin-left: 1rem;">Target Language:
+            <select id="targetLanguage">
+              <option value="English">English</option>
+              <option value="Arabic">Arabic</option>
+              <option value="German">German</option>
+              <option value="French">French</option>
+              <option value="Spanish">Spanish</option>
+            </select>
+          </label>
+        </div>
+        
+        <div class="row">
+          <label>Gemini Model:
+            <select id="geminiModel">
+              <option value="gemini-2.5-flash-lite" selected>Gemini 2.5 Flash-Lite (Ultra Fast)</option>
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast & Intelligent)</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Most Advanced)</option>
+            </select>
+          </label>
+          <label style="margin-left: 1rem;">Temperature:
+            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" style="width: 100px;">
+            <span id="temperatureValue">0.7</span>
+          </label>
+        </div>
+        
+        <div class="row">
+          <label>Max Tokens:
+            <input type="number" id="maxTokens" min="100" max="4000" value="1000" style="width: 100px;">
+          </label>
+          <label style="margin-left: 1rem;">Top-P:
+            <input type="range" id="topP" min="0" max="1" step="0.1" value="0.8" style="width: 100px;">
+            <span id="topPValue">0.8</span>
+          </label>
+        </div>
+        
+        <div class="row">
+          <label style="display: block; width: 100%;">Translation Prompt:
+            <textarea id="translationPrompt" rows="4" style="width: 100%; margin-top: 0.5rem;" placeholder="Enter your translation prompt...">You are an expert translator specializing in Islamic content. 
+Translate the following text from {sourceLanguage} to {targetLanguage}.
+Preserve religious terminology accuracy and cultural context.
+
+Text: {transcript}</textarea>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div id="status" class="status stopped">Ready to start Google infinite streaming</div>
+    <div id="streamInfo" style="margin-top: 0.5rem; padding: 0.5rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 0.25rem; font-size: 0.9em;">
+      <strong>Stream Info:</strong> <span id="streamText">Not started</span>
+    </div>
+    <div id="tokenInfo" style="margin-top: 0.5rem; padding: 0.5rem; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 0.25rem; font-size: 0.9em;">
+      <strong>🔑 Token:</strong> <span id="tokenDisplay">Loading...</span>
+      <button id="copyToken" style="margin-left: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.8em; background: #4caf50; color: white; border: none; border-radius: 0.25rem; cursor: pointer;">Copy</button>
+    </div>
+    <div id="out"></div>
+    
+    <!-- Translation Results -->
+    <div id="translationResults" style="margin-top: 1rem; display: none;">
+      <h3 style="color: #495057;">🌐 Translation Results</h3>
+      <div id="translationOut" style="white-space: pre-wrap; border: 1px solid #ddd; padding: .75rem; border-radius: .5rem; min-height: 4rem; background: #f8f9fa;"></div>
+    </div>
+
+    <script type="module">
+      import { VoiceFlowRecognition } from './voiceflow.js';
+
+      const out = document.getElementById('out');
+      const btnStart = document.getElementById('start');
+      const btnStop = document.getElementById('stop');
+      const selLang = document.getElementById('lang');
+      const selModel = document.getElementById('model');
+      const status = document.getElementById('status');
+      const silentMode = document.getElementById('silentMode');
+      const streamText = document.getElementById('streamText');
+      const tokenDisplay = document.getElementById('tokenDisplay');
+      const copyTokenBtn = document.getElementById('copyToken');
+      
+      // Translation controls
+      const translationEnabled = document.getElementById('translationEnabled');
+      const translationConfig = document.getElementById('translationConfig');
+      const testTranslationBtn = document.getElementById('testTranslation');
+      const sourceLanguage = document.getElementById('sourceLanguage');
+      const targetLanguage = document.getElementById('targetLanguage');
+      const geminiModel = document.getElementById('geminiModel');
+      const temperature = document.getElementById('temperature');
+      const temperatureValue = document.getElementById('temperatureValue');
+      const maxTokens = document.getElementById('maxTokens');
+      const topP = document.getElementById('topP');
+      const topPValue = document.getElementById('topPValue');
+      const translationPrompt = document.getElementById('translationPrompt');
+      const translationResults = document.getElementById('translationResults');
+      const translationOut = document.getElementById('translationOut');
+
+      let rec = null;
+      let isListening = false;
+      let lastSpeechTime = 0;
+      let speechTimeout = null;
+      let currentStreamId = 0;
+      let totalDuration = 0;
+      let sessionStartTime = 0;
+      let lastInterimTime = 0;
+      let lastInterimText = '';
+
+      // Initialize token display
+      function updateTokenDisplay() {
+        const token = sessionStorage.getItem('wsToken');
+        if (token) {
+          const displayToken = token.length > 20 ? token.substring(0, 20) + '...' : token;
+          tokenDisplay.textContent = displayToken;
+          tokenDisplay.title = token; // Full token on hover
+        } else {
+          tokenDisplay.textContent = 'No token';
+        }
+      }
+
+      // Copy token to clipboard
+      copyTokenBtn.onclick = () => {
+        const token = sessionStorage.getItem('wsToken');
+        if (token) {
+          navigator.clipboard.writeText(token).then(() => {
+            copyTokenBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyTokenBtn.textContent = 'Copy';
+            }, 2000);
+          }).catch(() => {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = token;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            copyTokenBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyTokenBtn.textContent = 'Copy';
+            }, 2000);
+          });
+        }
+      };
+
+      // Initialize token display on page load
+      updateTokenDisplay();
+      
+      // Translation control event handlers
+      translationEnabled.addEventListener('change', function() {
+        translationConfig.style.display = this.checked ? 'block' : 'none';
+        translationResults.style.display = this.checked ? 'block' : 'none';
+        testTranslationBtn.disabled = !this.checked;
+        if (!this.checked) {
+          translationOut.textContent = '';
+        }
+      });
+      
+      // Test translation button
+      testTranslationBtn.addEventListener('click', async function() {
+        const testText = "Hello, how are you today? This is a test.";
+        log(`🧪 Testing translation with text: "${testText}"`);
+        
+        try {
+          // Create a test WebSocket message
+          const testMsg = {
+            type: "test_translation",
+            text: testText,
+            translationPrompt: translationPrompt.value,
+            targetLanguage: targetLanguage.value,
+            sourceLanguage: sourceLanguage.value,
+            geminiModelConfig: {
+              model: geminiModel.value,
+              temperature: parseFloat(temperature.value),
+              maxTokens: parseInt(maxTokens.value),
+              topP: parseFloat(topP.value)
+            }
+          };
+          
+          // If recognition is active, send through WebSocket
+          if (rec && rec.ws && rec.ws.readyState === WebSocket.OPEN) {
+            rec.ws.send(JSON.stringify(testMsg));
+            log('✅ Test translation request sent to server');
+          } else {
+            log('❌ WebSocket not connected. Please start recognition first.');
+          }
+        } catch (error) {
+          log(`❌ Test translation error: ${error.message}`);
+        }
+      });
+      
+      temperature.addEventListener('input', function() {
+        temperatureValue.textContent = this.value;
+      });
+      
+      topP.addEventListener('input', function() {
+        topPValue.textContent = this.value;
+      });
+      
+      function logTranslation(original, translated, sourceLang, targetLang, translationId, timestamp) {
+        const time = new Date(timestamp || Date.now()).toISOString().split('T')[1].substring(0, 12);
+        const p = document.createElement('div');
+        p.innerHTML = `<strong>[${time}] Translation #${translationId || '?'}</strong><br/>
+          <strong>Original (${sourceLang}):</strong> ${original}<br/>
+          <strong>Translated (${targetLang}):</strong> ${translated}<br/><br/>`;
+        translationOut.appendChild(p);
+        
+        // Auto-scroll to bottom with smooth behavior
+        setTimeout(() => {
+          translationOut.scrollTop = translationOut.scrollHeight;
+        }, 10);
+      }
+
+      function updateStatus(message, type = 'stopped') {
+        status.textContent = message;
+        status.className = `status ${type}`;
+        if (type === 'listening') {
+          status.classList.add('pulse');
+        } else {
+          status.classList.remove('pulse');
+        }
+      }
+
+      function updateButtons(listening) {
+        isListening = listening;
+        btnStart.disabled = listening;
+        btnStop.disabled = !listening;
+        btnStart.textContent = listening ? 'Listening...' : 'Start Continuous Listening';
+        btnStart.className = listening ? 'active' : '';
+      }
+
+      function updateStreamInfo(streamId, bridgingOffset) {
+        currentStreamId = streamId;
+        const sessionDuration = sessionStartTime > 0 ? Date.now() - sessionStartTime : 0;
+        const minutes = Math.floor(sessionDuration / 60000);
+        const seconds = Math.floor((sessionDuration % 60000) / 1000);
+        const bridgingSec = Math.round(bridgingOffset / 1000);
+        
+        if (streamId === 0) {
+          streamText.textContent = `Not started`;
+        } else {
+          streamText.textContent = `Stream #${streamId} | Session: ${minutes}:${seconds.toString().padStart(2, '0')} | Audio: ${bridgingSec}s | Infinite Streaming Active ✓`;
+        }
+      }
+
+      function log(text, cls) {
+        const timestamp = new Date().toISOString().split('T')[1].substring(0, 12);
+        const p = document.createElement('div');
+        p.textContent = `[${timestamp}] ${text}`;
+        if (cls) p.className = cls;
+        out.appendChild(p);
+        
+        // Auto-scroll to bottom with smooth behavior
+        setTimeout(() => {
+          out.scrollTop = out.scrollHeight;
+        }, 10);
+        
+        // Force immediate DOM update to prevent batching
+        out.offsetHeight; // Force reflow
+      }
+
+      btnStart.onclick = () => {
+        out.textContent = '';
+        sessionStartTime = Date.now();
+        updateStatus('Initializing Google infinite streaming...', 'stopped');
+        updateStreamInfo(0, 0);
+        
+        // Get service URL from environment or use default
+        const defaultUrl = 'wss://voiceflow-relay-e5l6mfznxq-ew.a.run.app';
+        const savedUrl = localStorage.getItem('wsUrl');
+        const serviceUrl = window.location.protocol === 'https:' 
+          ? (savedUrl || defaultUrl)
+          : 'ws://localhost:8080';
+        log(`🌐 Connecting to: ${serviceUrl}`);
+        rec = new VoiceFlowRecognition(serviceUrl);
+        rec.lang = selLang.value;
+        rec.interimResults = true;
+        rec.continuous = true;
+        rec.maxAlternatives = 1;
+        
+        // Get the WebSocket token from sessionStorage
+        const savedToken = localStorage.getItem('wsBearer');
+        const wsToken = (sessionStorage.getItem('wsToken') || savedToken || '').trim();
+        
+        // Allow empty token only if server has auth disabled; in our case auth is enabled, so enforce
+        if (!wsToken) {
+          log('❌ No WebSocket token found. Please enter token on login screen.');
+          updateStatus('Error: No authentication token', 'error');
+          return;
+        }
+        
+        // Validate token format before using it
+        if (!/^[a-f0-9]{64}$/i.test(wsToken)) {
+          log('❌ Invalid token format. Token must be 64 hexadecimal characters.');
+          updateStatus('Error: Invalid token format', 'error');
+          return;
+        }
+        
+        // Debug: Log the token being used (first 20 chars only for security)
+        log(`🔑 Using token: ${wsToken.substring(0, 20)}...`);
+        
+        rec.voiceFlow = {
+          model: selModel.value,
+          wordTimeOffsets: true,
+          spokenPunctuation: true,
+          // Ensure continuous mode - explicitly disable single utterance
+          endpointing: { singleUtterance: false },
+          // Optimize for continuous recognition
+          emitStability: false, // Reduce noise from stability events
+          // Example hints:
+          phraseHints: ["MinbarAI"],
+          // Use authentication token from login
+          token: wsToken,
+          // Translation configuration
+          translation: translationEnabled.checked ? {
+            enabled: true,
+            prompt: translationPrompt.value,
+            targetLanguage: targetLanguage.value,
+            sourceLanguage: sourceLanguage.value,
+            geminiConfig: {
+              model: geminiModel.value,
+              temperature: parseFloat(temperature.value),
+              maxTokens: parseInt(maxTokens.value),
+              topP: parseFloat(topP.value)
+            }
+          } : undefined
+        };
+
+        rec.onstart = () => {
+          log('🎤 Continuous listening started (Google Infinite Streaming)');
+          updateStatus('🎤 Listening continuously - speak naturally, recognition will continue until you press Stop', 'listening');
+          updateButtons(true);
+          updateStreamInfo(1, 0); // Start with stream #1
+        };
+        
+        // Add additional event handlers for better feedback
+        rec.onspeechstart = () => {
+          const now = Date.now();
+          lastSpeechTime = now;
+          
+          // Clear any existing speech end timeout
+          if (speechTimeout) {
+            clearTimeout(speechTimeout);
+            speechTimeout = null;
+          }
+          
+          // Log in non-silent mode
+          if (!silentMode.checked) {
+            log('🗣️ Speech detected...');
+          }
+        };
+        
+        rec.onspeechend = () => {
+          // Set a timeout to log speech end only if no new speech starts within 500ms
+          if (!silentMode.checked) {
+            speechTimeout = setTimeout(() => {
+              log('🔇 Speech ended, continuing to listen...');
+              speechTimeout = null;
+            }, 500);
+          }
+        };
+        
+        rec.onerror = (e) => {
+          log(`❌ Error: ${e.error} ${e.message || ''}`);
+          updateStatus(`Error: ${e.error} ${e.message || ''}`, 'error');
+          updateButtons(false);
+        };
+        
+        rec.onend = () => {
+          const sessionDuration = sessionStartTime > 0 ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+          log(`🔴 Recognition ended (session duration: ${sessionDuration}s)`);
+          updateStatus('Recognition stopped - click Start to resume', 'stopped');
+          updateButtons(false);
+          updateStreamInfo(0, 0);
+          
+          // Clear the recognition object so it can be restarted
+          rec = null;
+          sessionStartTime = 0;
+        };
+
+        rec.onresult = (e) => {
+          const res = e.results[e.resultIndex];
+          const text = res[0].transcript;
+          
+          // Update stream info with actual data from results if available
+          if (e.streamId !== undefined && e.bridgingOffset !== undefined) {
+            updateStreamInfo(e.streamId, e.bridgingOffset);
+          }
+          
+          if (text.trim()) {
+            if (res.isFinal) {
+              log('✔︎ ' + text, 'final');
+              lastInterimText = ''; // Reset interim tracking
+              lastInterimTime = Date.now();
+            } else {
+              // CRITICAL FIX: Show ALL interim results immediately
+              // Remove throttling that was causing batching appearance
+              const now = Date.now();
+              const textChanged = text !== lastInterimText;
+              
+              // Always show if text changed
+              if (textChanged) {
+                log('… ' + text, 'interim');
+                lastInterimTime = now;
+                lastInterimText = text;
+              }
+            }
+          }
+        };
+
+        // Handle server info messages (like stream rotations)
+        rec.oninfo = (e) => {
+          const data = e.info || e.data;
+          
+          if (!data) return;
+          
+          // Handle stream rotation notifications
+          if (data.type === 'info' && data.message === 'infinite_stream_rotated') {
+            const bridgingSec = Math.round(data.bridgingOffset / 1000);
+            if (!silentMode.checked) {
+              log(`🔄 Stream rotated → #${data.streamId} (audio duration: ${bridgingSec}s)`);
+            }
+            updateStreamInfo(data.streamId, data.bridgingOffset);
+          }
+          
+        };
+        
+        // Handle translation results
+        rec.ontranslation = (e) => {
+          logTranslation(e.original, e.translated, e.sourceLanguage, e.targetLanguage, e.translationId, e.timestamp);
+        };
+
+        rec.start();
+      };
+
+      btnStop.onclick = () => {
+        if (rec && isListening) {
+          log('🛑 Stopping continuous listening...');
+          updateStatus('Stopping recognition...', 'stopped');
+          rec.stop();
+          updateButtons(false);
+        }
+      };
+    </script>
+    </div> <!-- End of mainContent -->
+
+    <!-- Login JavaScript -->
+    <script>
+      function checkPassword() {
+        const passwordInput = document.getElementById('passwordInput');
+        const errorMessage = document.getElementById('errorMessage');
+        const loginContainer = document.getElementById('loginContainer');
+        const mainContent = document.getElementById('mainContent');
+        
+        let token = passwordInput.value.trim();
+        
+        // Clean up token if it includes extra text from cloudbuild.yaml
+        if (token.includes("_WS_BEARER:")) {
+          token = token.replace(/.*_WS_BEARER:\s*['"]?/, '').replace(/['"]\s*$/, '');
+        }
+        
+        // Validate token format (should be 64 hex characters)
+        if (token.length === 64 && /^[a-f0-9]+$/i.test(token)) {
+          // Test the token by attempting a WebSocket connection
+          testTokenValidity(token).then((isValid) => {
+            if (isValid) {
+              // Hide login form and show main content
+              loginContainer.classList.add('hidden');
+              mainContent.classList.remove('hidden');
+              
+              // Store authentication token in sessionStorage
+              sessionStorage.setItem('authenticated', 'true');
+              sessionStorage.setItem('wsToken', token);
+              
+              // Update token display immediately
+              updateTokenDisplay();
+            } else {
+              // Show error message for invalid token
+              errorMessage.textContent = '❌ Invalid token. Please check the token and try again.';
+              passwordInput.focus();
+            }
+          }).catch(() => {
+            // Show error message for connection issues
+            errorMessage.textContent = '❌ Unable to validate token. Please check your connection.';
+            passwordInput.focus();
+          });
+        } else {
+          // Show error message for invalid format
+          errorMessage.textContent = '❌ Please enter a valid 64-character hex token';
+          passwordInput.focus();
+        }
+      }
+      
+      // Check if already authenticated on page load
+      window.addEventListener('load', function() {
+        if (sessionStorage.getItem('authenticated') === 'true') {
+          document.getElementById('loginContainer').classList.add('hidden');
+          document.getElementById('mainContent').classList.remove('hidden');
+        } else {
+          // Focus on password input
+          document.getElementById('passwordInput').focus();
+        }
+      });
+      
+      // Allow Enter key to submit password
+      document.getElementById('passwordInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          checkPassword();
+        }
+      });
+      
+      // Function to test token validity by attempting WebSocket connection
+      function testTokenValidity(token) {
+        return new Promise((resolve) => {
+          const defaultUrl = 'wss://voiceflow-relay-e5l6mfznxq-ew.a.run.app';
+          const savedUrl = localStorage.getItem('wsUrl');
+          const serviceUrl = window.location.protocol === 'https:' 
+            ? (savedUrl || defaultUrl)
+            : 'ws://localhost:8080';
+          
+          const testWs = new WebSocket(serviceUrl, ['bearer', token]);
+          
+          const timeout = setTimeout(() => {
+            testWs.close();
+            resolve(false);
+          }, 5000); // 5 second timeout
+          
+          testWs.onopen = () => {
+            clearTimeout(timeout);
+            testWs.close();
+            resolve(true);
+          };
+          
+          testWs.onerror = () => {
+            clearTimeout(timeout);
+            resolve(false);
+          };
+          
+          testWs.onclose = (ev) => {
+            clearTimeout(timeout);
+            // If closed with code 1008, it's an auth failure
+            resolve(ev.code !== 1008);
+          };
+        });
+      }
+    </script>
+  </body>
+</html>

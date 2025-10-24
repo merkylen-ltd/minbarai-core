@@ -1,0 +1,21 @@
+# Ignore development files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Ignore documentation
+doc/
+*.md
+README.md
+
+# Ignore scripts
+scripts/
+seed.sh
+
+# Ignore database files
+database.sql
+
+# Ignore other project folders
+MinbarAI-Website-Frontend-master/
+minbarai-future-website/

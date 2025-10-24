@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" shape-rendering="geometricPrecision">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="faceFront" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#1a1a1a" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="faceSide" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111111" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#2a2a2a" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="faceTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#333333" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Front face -->
+  <polygon points="128,160 128,384 256,448 256,224" fill="url(#faceFront)"/>
+  
+  <!-- Side face -->
+  <polygon points="256,224 256,448 384,384 384,160" fill="url(#faceSide)"/>
+  
+  <!-- Top face -->
+  <polygon points="128,160 256,224 384,160 256,96" fill="url(#faceTop)"/>
+</svg>

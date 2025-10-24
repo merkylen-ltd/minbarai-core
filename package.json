@@ -1,0 +1,63 @@
+{
+  "name": "minberai-saas",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "node scripts/validate-build-env.js && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "seed": "node scripts/seed-database.js",
+    "seed:cleanup": "node scripts/seed-database.js cleanup",
+    "seed:list": "node scripts/seed-database.js list",
+    "docker:build": "docker build -t minberai .",
+    "docker:build:minimal": "docker build -f Dockerfile.minimal -t minberai:minimal .",
+    "docker:optimize": "./optimize-build.sh",
+    "docker:run": "docker run -p 3000:8080 minberai",
+    "docker:run:minimal": "docker run -p 3000:8080 minberai:minimal",
+    "gcloud:setup": "./setup-service-account.sh",
+    "deploy:setup": "./setup-secrets.sh",
+    "deploy:pro": "./deploy-pro.sh",
+    "deploy:dev": "./deploy-dev.sh",
+    "webhooks:register": "./register-stripe-webhooks.sh",
+    "gcloud:auth": "gcloud auth login && gcloud auth configure-docker",
+    "oauth:verify": "node scripts/verify-oauth-cloud-run.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@stripe/stripe-js": "^2.2.2",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "autoprefixer": "^10.4.16",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.0.0",
+    "dotenv": "^17.2.2",
+    "lucide-react": "^0.294.0",
+    "next": "^14.2.33",
+    "postcss": "^8.4.32",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.5.0",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.7.5",
+    "stripe": "^14.9.0",
+    "tailwind-merge": "^2.1.0",
+    "tailwindcss": "^3.3.6",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.17",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.2.17",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.0.4"
+  }
+}
