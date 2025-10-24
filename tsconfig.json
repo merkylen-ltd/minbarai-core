@@ -29,7 +29,8 @@
       ]
     },
         "types": [
-          "jest"
+          "jest",
+          "@testing-library/jest-dom"
         ]
   },
   "include": [
@@ -38,7 +39,8 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "__tests__/**/*.ts",
-    "__tests__/**/*.tsx"
+    "__tests__/**/*.tsx",
+    "types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules",
