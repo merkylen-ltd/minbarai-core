@@ -192,17 +192,10 @@ deploy_to_cloud_run() {
 #     print_status "Update your DNS records to point to the provided CNAME target."
 # }
 
-# Register Stripe webhooks
+# Register Stripe webhooks (optional - can be done manually)
 register_stripe_webhooks() {
-    print_status "Registering Stripe webhooks..."
-    
-    # Run the webhook registration script
-    if [ -f "./register-stripe-webhooks.sh" ]; then
-        ./register-stripe-webhooks.sh production
-        print_success "Stripe webhooks registered successfully!"
-    else
-        print_warning "Stripe webhook registration script not found. Please run it manually."
-    fi
+    print_status "Note: Stripe webhooks should be registered manually after deployment."
+    print_status "Use: ./register-stripe-webhooks.sh production"
 }
 
 # Get service information

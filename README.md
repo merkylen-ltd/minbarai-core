@@ -27,6 +27,8 @@ A professional SaaS application for live multi-language translation, built with 
 - **Deployment**: Google Cloud Run
 - **Containerization**: Docker
 - **Secrets Management**: Google Secret Manager
+- **CI/CD**: Google Cloud Build with automated testing and security scanning
+- **Testing**: Jest + React Testing Library
 
 ## Quick Start
 
@@ -244,15 +246,31 @@ Webhooks are automatically registered during deployment:
 
 #### CI/CD with Cloud Build
 
-Use the included \`cloudbuild.yaml\` for automated deployments:
+The project includes a complete CI/CD pipeline with automated testing, security scanning, and branch-based deployments. See [CI/CD Documentation](docs/CI-CD.md) for detailed setup instructions.
 
+**Quick Setup:**
 ```bash
+# Development trigger (dev branch)
 gcloud builds triggers create github \
-  --repo-name=MinberAI-core \
+  --repo-name=MinberAI \
+  --repo-owner=your-github-username \
+  --branch-pattern="^dev$" \
+  --build-config=cloudbuild.yaml
+
+# Production trigger (main branch)  
+gcloud builds triggers create github \
+  --repo-name=MinberAI \
   --repo-owner=your-github-username \
   --branch-pattern="^main$" \
   --build-config=cloudbuild.yaml
 ```
+
+**Pipeline Features:**
+- ✅ Automated testing with Jest
+- ✅ ESLint and TypeScript validation
+- ✅ Security scanning (npm audit + Trivy)
+- ✅ Branch-based deployments (dev → dev env, main → prod)
+- ✅ Quality gates with build failure on errors
 
 ## Project Structure
 
@@ -349,6 +367,9 @@ npm run docker:run
 - \`npm run start\` - Start production server
 - \`npm run lint\` - Run ESLint
 - \`npm run type-check\` - Run TypeScript checks
+- \`npm run test\` - Run Jest tests
+- \`npm run test:watch\` - Run tests in watch mode
+- \`npm run test:coverage\` - Run tests with coverage report
 - \`npm run docker:build\` - Build Docker image
 - \`npm run docker:run\` - Run Docker container
 - \`npm run deploy:setup\` - Set up Google Secret Manager
