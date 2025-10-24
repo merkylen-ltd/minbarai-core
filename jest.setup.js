@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+// Jest setup for Next.js with React Testing Library
 
 // Mock Next.js router
 jest.mock('next/router', () => ({

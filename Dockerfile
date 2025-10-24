@@ -14,8 +14,8 @@ WORKDIR /app
 # Copy package files with exact versions
 COPY package.json package-lock.json* ./
 
-# Install only production dependencies with optimizations
-RUN npm ci --only=production --no-audit --no-fund --prefer-offline \
+# Install all dependencies (including dev dependencies for build)
+RUN npm ci --no-audit --no-fund --prefer-offline \
     && npm cache clean --force \
     && apk del .build-deps \
     && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
