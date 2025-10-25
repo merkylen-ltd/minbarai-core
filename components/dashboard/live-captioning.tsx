@@ -540,6 +540,12 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     status: 'disconnected'
   })
 
+  // Typing animation state
+  const [completedTranslations, setCompletedTranslations] = useState('')
+  const [typingText, setTypingText] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
+  const [pendingTranslation, setPendingTranslation] = useState('')
+
   
   // UI state
   const [textSize, setTextSize] = useState(18)
@@ -590,6 +596,10 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
   const sourceScrollRef = useRef<HTMLDivElement>(null)
   const targetScrollRef = useRef<HTMLDivElement>(null)
   
+  // Typing animation refs
+  const typingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const typingQueueRef = useRef<string[]>([])
+  
   // Simple state tracking
   const isUserStoppedRef = useRef<boolean>(false)
 
@@ -602,6 +612,56 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
   const scrollToBottom = useCallback((ref: React.RefObject<HTMLDivElement>) => {
     if (ref.current) {
       ref.current.scrollTop = ref.current.scrollHeight
+    }
+  }, [])
+
+  // Typing animation effect
+  useEffect(() => {
+    if (pendingTranslation && !isTyping) {
+      setIsTyping(true)
+      setTypingText('')
+      
+      let currentIndex = 0
+      const fullText = pendingTranslation
+      
+      typingIntervalRef.current = setInterval(() => {
+        if (currentIndex < fullText.length) {
+          setTypingText(fullText.slice(0, currentIndex + 1))
+          currentIndex++
+        } else {
+          // Typing complete
+          if (typingIntervalRef.current) {
+            clearInterval(typingIntervalRef.current)
+            typingIntervalRef.current = null
+          }
+          
+          // Move completed text to completed translations
+          setCompletedTranslations(prev => prev + (prev ? '\n' : '') + fullText)
+          setTypingText('')
+          setIsTyping(false)
+          setPendingTranslation('')
+          
+          // Check for queued translations
+          if (typingQueueRef.current.length > 0) {
+            const nextTranslation = typingQueueRef.current.shift()
+            if (nextTranslation) {
+              setPendingTranslation(nextTranslation)
+            }
+          }
+          
+          // Scroll to bottom after typing completes
+          setTimeout(() => scrollToBottom(targetScrollRef), 100)
+        }
+      }, 40) // 40ms per character for smooth typing
+    }
+  }, [pendingTranslation, isTyping, scrollToBottom])
+
+  // Cleanup typing interval on unmount
+  useEffect(() => {
+    return () => {
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current)
+      }
     }
   }, [])
 
@@ -779,8 +839,14 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
         console.log('[Metrics] Translation latency (ms):', Math.round(deltaMs), '| avg (last 20):', Math.round(avg))
       }
       
-      setTargetText(prev => (prev ? prev + '\n' : '') + e.translated)
-      scrollToBottom(targetScrollRef)
+      // Queue translation for typing animation
+      if (isTyping) {
+        // If currently typing, queue the new translation
+        typingQueueRef.current.push(e.translated)
+      } else {
+        // Start typing animation immediately
+        setPendingTranslation(e.translated)
+      }
     }
   }, [state.sourceLanguage, scrollToBottom, handleTranslation, showAlert])
 
@@ -1258,6 +1324,17 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     setSourceText('')
     setTargetText('')
     setInterimText('')
+    // Clear typing animation state
+    setCompletedTranslations('')
+    setTypingText('')
+    setIsTyping(false)
+    setPendingTranslation('')
+    typingQueueRef.current = []
+    // Clear any active typing interval
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current)
+      typingIntervalRef.current = null
+    }
   }, [])
 
   const downloadTranscript = useCallback(() => {
@@ -1577,7 +1654,7 @@ ${targetText}
                 }}
               >
                 <span className="text-white">{sourceText}</span>
-                <span className="text-neutral-400 italic">{interimText}</span>
+                <span className="text-orange-400 italic">{interimText}</span>
                 <span className={`inline-block w-0.5 h-6 bg-accent-400 animate-blink-cursor ${
                   state.sourceConfig.isRTL ? 'mr-1' : 'ml-1'
                 }`} />
@@ -1625,7 +1702,17 @@ ${targetText}
                   fontSize: `${textSize}px`
                 }}
               >
-                <span className="text-white">{targetText}</span>
+                {/* Completed translations in white */}
+                {completedTranslations && (
+                  <span className="text-white">{completedTranslations}</span>
+                )}
+                
+                {/* Currently typing text in orange */}
+                {typingText && (
+                  <span className="text-orange-500">{typingText}</span>
+                )}
+                
+                {/* Blinking cursor - show during typing or when not typing */}
                 <span className={`inline-block w-0.5 h-6 bg-accent-400 animate-blink-cursor ${
                   state.targetConfig.isRTL ? 'mr-1' : 'ml-1'
                 }`} />
