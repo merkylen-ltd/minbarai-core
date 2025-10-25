@@ -9,26 +9,28 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { ChevronDown, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Loader2 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
 interface TranslationVariantSelectorProps {
   value: TranslationVariant
-  onChange: (variant: TranslationVariant) => void
+  onChange: (variant: TranslationVariant) => Promise<void>
   disabled: boolean
+  isLoading?: boolean
 }
 
 export const TranslationVariantSelector: React.FC<TranslationVariantSelectorProps> = ({
   value,
   onChange,
-  disabled
+  disabled,
+  isLoading = false
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   
   const selectedVariant = TRANSLATION_VARIANTS.find(v => v.value === value)
   
-  const handleSelect = (variant: TranslationVariant) => {
-    onChange(variant)
+  const handleSelect = async (variant: TranslationVariant) => {
+    await onChange(variant)
     setIsOpen(false)
   }
 
@@ -37,11 +39,14 @@ export const TranslationVariantSelector: React.FC<TranslationVariantSelectorProp
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          disabled={disabled}
+          disabled={disabled || isLoading}
           className="h-6 px-2 bg-transparent border-none text-white hover:bg-white/10 text-xs font-body min-w-[100px] w-full justify-between shadow-none"
-          title={`Current mode: ${selectedVariant?.label || 'Select mode'}`}
+          title={`Current mode: ${selectedVariant?.label || 'Select mode'}${isLoading ? ' (Loading...)' : ''}`}
         >
-          <span className="truncate">{selectedVariant?.label || 'Select mode'}</span>
+          <span className="truncate flex items-center gap-1">
+            {isLoading && <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />}
+            {selectedVariant?.label || 'Select mode'}
+          </span>
           <ChevronDown className="h-3 w-3 text-neutral-400 ml-1 flex-shrink-0" />
         </Button>
       </DropdownMenuTrigger>

@@ -163,6 +163,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
         onSwapLanguages={liveCaptioning.swapLanguages}
         translationVariant={liveCaptioning.translationVariant}
         onTranslationVariantChange={liveCaptioning.setTranslationVariant}
+        isVariantLoading={liveCaptioning.isVariantLoading}
         textSize={liveCaptioning.textSize}
         onTextSizeChange={liveCaptioning.setTextSize}
         showSourcePanel={liveCaptioning.showSourcePanel}

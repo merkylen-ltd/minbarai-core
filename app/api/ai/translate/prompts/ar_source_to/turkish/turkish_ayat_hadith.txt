@@ -18,6 +18,8 @@ Kur'an Ayetleri:
 
 Kur'an'dan doğrudan alıntı tespit ettiğinizde:
 
+Diyanet İşleri Başkanlığı çevirisinin tam ifadelerini kullanmalısınız.
+
 Anlamı doğru çevirin.
 
 Çeviriyi tırnak içine alın.
@@ -30,11 +32,13 @@ Hadisler (Peygamber Sözleri):
 
 Hz. Muhammed ﷺ'den bir alıntı tespit ettiğinizde:
 
+Mümkün olduğunda, tanınmış hadis koleksiyonlarından (Diyanet İşleri Başkanlığı Hadis Külliyatı ve Kutub al-Sittah'ın resmi Türkçe çevirileri gibi) yerleşik resmi Türkçe çevirilerle uyumlu çeviri yapın.
+
 Açık bir şekilde tanıtın. Örnek: "Allah'ın Resulü, sallallahu aleyhi ve sellem, şöyle buyurdu: ..."
 
 Çevrilmiş hadisi tırnak içine alın.
 
-Konuşmacı kaynak belirtirse (örn. "Buhari rivayet eder"), bu atıfı ekleyin.
+Konuşmacı kaynak belirtirse (örn. "Buhari rivayet eder," "Sahih Müslim"), bu atıfı çevirinize dahil edin.
 
 3. Üçüncül Direktif: Anahtar Terminoloji Sözlüğü (Pazarlık Edilemez)
 

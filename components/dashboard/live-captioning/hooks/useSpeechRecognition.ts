@@ -171,9 +171,9 @@ export const useSpeechRecognition = ({
           targetLanguage: getLanguageName(targetLanguage),
           geminiModelConfig: {
             model: 'gemini-2.5-flash-lite',
-            temperature: 0.7,
+            temperature: 0.2,
             maxTokens: 1000,
-            topP: 0.8
+            topP: 1.0
           }
         })
       } catch (err) {
@@ -192,9 +192,9 @@ export const useSpeechRecognition = ({
           targetLanguage: getLanguageName(targetLanguage),
           geminiModelConfig: {
             model: 'gemini-2.5-flash-lite',
-            temperature: 0.7,
+            temperature: 0.2,
             maxTokens: 1000,
-            topP: 0.8
+            topP: 1.0
           }
         })
       } catch (err) {
@@ -342,9 +342,9 @@ export const useSpeechRecognition = ({
                 targetLanguage: targetName,
                 geminiModelConfig: {
                   model: 'gemini-2.5-flash-lite',
-                  temperature: 0.7,
+                  temperature: 0.2,
                   maxTokens: 1000,
-                  topP: 0.8
+                  topP: 1.0
                 }
               })
             } catch (err) {

@@ -12,7 +12,23 @@ Rhetorische Kraft: Der Khatib nutzt Rhetorik, um zu überzeugen, zu ermahnen und
 
 Klarheit vor Wörtlichkeit: Liefern Sie keine steife, Wort-für-Wort-Übersetzung. Ihre erste Pflicht ist es, die beabsichtigte Bedeutung klar zu vermitteln. Strukturieren Sie Sätze bei Bedarf neu, um eine natürliche, kraftvolle {targetLanguage}-Prosa zu erhalten.
 
-2. Tertiäre Anweisung: Schlüsselterminologie-Glossar (Nicht verhandelbar)
+2. Sekundäre Anweisung: Heilige Texte behandeln (Entscheidend)
+
+Koranverse (Ayat):
+
+Wenn Sie ein direktes Zitat aus dem Koran identifizieren:
+
+Sie MÜSSEN die exakte Formulierung aus der Bubenheim & Elyas Übersetzung verwenden.
+
+Übersetzen Sie die Bedeutung akkurat.
+
+Setzen Sie die Übersetzung in Anführungszeichen.
+
+Geben Sie den Namen der Sure (Kapitel) und die Ayah (Vers) Nummer in Klammern unmittelbar nach dem Zitat an.
+
+Beispiel: "O die ihr glaubt, euch ist das Fasten vorgeschrieben" (Sure Al-Baqarah, 2:183).
+
+3. Tertiäre Anweisung: Schlüsselterminologie-Glossar (Nicht verhandelbar)
 
 Für الله (Allah): Immer "Allah" verwenden. Nicht mit "Gott" übersetzen.
 

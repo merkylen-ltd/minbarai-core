@@ -24,7 +24,8 @@ export interface UseLiveCaptioningReturn {
   setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>
   isMounted: boolean
   translationVariant: TranslationVariant
-  setTranslationVariant: React.Dispatch<React.SetStateAction<TranslationVariant>>
+  setTranslationVariant: (variant: TranslationVariant) => Promise<void>
+  isVariantLoading: boolean
   
   // Language state
   languageState: any
@@ -74,6 +75,7 @@ export const useLiveCaptioning = (
   const [showSourcePanel, setShowSourcePanel] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [translationVariant, setTranslationVariant] = useState<TranslationVariant>('quran_hadith')
+  const [isVariantLoading, setIsVariantLoading] = useState(false)
 
   // Language context
   const languageContext = useLanguage()
@@ -114,6 +116,18 @@ export const useLiveCaptioning = (
   }, [])
 
   // Note: Usage status monitoring moved to main component since it needs access to recording state
+
+  // Handle translation variant change with loading state
+  const handleTranslationVariantChange = useCallback(async (variant: TranslationVariant) => {
+    setIsVariantLoading(true)
+    try {
+      setTranslationVariant(variant)
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 100))
+    } finally {
+      setIsVariantLoading(false)
+    }
+  }, [])
 
   // Clear transcription
   const clearTranscription = useCallback(() => {
@@ -191,7 +205,8 @@ ${targetText}
     setIsFullscreen,
     isMounted,
     translationVariant,
-    setTranslationVariant,
+    setTranslationVariant: handleTranslationVariantChange,
+    isVariantLoading,
     
     // Language state
     languageState,

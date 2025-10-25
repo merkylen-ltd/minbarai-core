@@ -20,7 +20,8 @@ interface ControlPanelProps {
   
   // Translation variant state
   translationVariant: TranslationVariant
-  onTranslationVariantChange: (variant: TranslationVariant) => void
+  onTranslationVariantChange: (variant: TranslationVariant) => Promise<void>
+  isVariantLoading: boolean
   
   // UI state
   textSize: number
@@ -57,6 +58,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onSwapLanguages,
   translationVariant,
   onTranslationVariantChange,
+  isVariantLoading,
   textSize,
   onTextSizeChange,
   showSourcePanel,
@@ -180,6 +182,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 value={translationVariant}
                 onChange={onTranslationVariantChange}
                 disabled={isRecording}
+                isLoading={isVariantLoading}
               />
             </div>
           </div>

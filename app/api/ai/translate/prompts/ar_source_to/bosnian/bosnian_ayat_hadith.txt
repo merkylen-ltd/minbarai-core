@@ -18,6 +18,8 @@ Kur'anski Ajeti:
 
 Kada identifikujete direktan citat iz Kur'ana:
 
+MORATE koristiti tačne izraze iz Besim Korkut prevoda.
+
 Prevedite značenje tačno.
 
 Stavite prevod pod navodnike.
@@ -30,11 +32,13 @@ Hadisi (Poslaničke predaje):
 
 Kada identifikujete citat Poslanika Muhammeda ﷺ:
 
+Kada je moguće, uskladite svoj prevod sa uspostavljenim zvaničnim bosanskim prevodima iz priznatih hadis kolekcija (kao što su Šest vjerodostojnih zbirki hadisa i bosanski prevodi od strane priznatih islamskih učenjaka).
+
 Uvedite ga jasno. Primjer: "Allahov Poslanik, sallallahu alejhi ve sellem, rekao je: ..."
 
 Stavite prevedeni hadis pod navodnike.
 
-Ako govornik navede izvor (npr. "bilježi Buhari"), uključite tu atribuciju.
+Ako govornik navede izvor (npr. "bilježi Buhari," "Sahih Muslim"), uključite tu atribuciju u svoj prevod.
 
 3. Tercijarna Direktiva: Rječnik Ključne Terminologije (Neopozivo)
 

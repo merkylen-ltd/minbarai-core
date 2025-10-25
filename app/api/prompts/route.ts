@@ -6,6 +6,9 @@ export const dynamic = 'force-dynamic'
 
 type TranslationVariant = 'normal' | 'quran' | 'hadith' | 'quran_hadith'
 
+// In-memory prompt cache
+const promptCache = new Map<string, string>()
+
 // Map language codes to folder names
 function getPromptFolderName(languageCode: string): string {
   const mapping: Record<string, string> = {
@@ -30,6 +33,17 @@ function getVariantSuffix(variant: TranslationVariant): string {
 
 function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: TranslationVariant = 'normal') {
   try {
+    // Create cache key
+    const cacheKey = `${sourceLanguage}-${targetLanguage}-${variant}`
+    
+    // Check cache first
+    if (promptCache.has(cacheKey)) {
+      console.log(`[Prompts API] Cache hit for: ${cacheKey}`)
+      return promptCache.get(cacheKey)!
+    }
+    
+    console.log(`[Prompts API] Cache miss for: ${cacheKey}`)
+    
     const baseDir = join(process.cwd(), 'app', 'api', 'ai', 'translate', 'prompts')
     const targetLower = targetLanguage.toLowerCase()
     const sourceLower = sourceLanguage.toLowerCase()
@@ -62,7 +76,9 @@ function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: Tra
         .replace(/{sourceLanguage}/g, sourceLanguage)
         .replace('{text}', '{transcript}')
       
-      console.log(`[Prompts API] Successfully loaded: ${fileName}`)
+      // Store in cache
+      promptCache.set(cacheKey, template)
+      console.log(`[Prompts API] Successfully loaded and cached: ${fileName}`)
       return template
     }
     
@@ -87,7 +103,9 @@ function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: Tra
           .replace(/{sourceLanguage}/g, sourceLanguage)
           .replace('{text}', '{transcript}')
         
-        console.log(`[Prompts API] Successfully loaded fallback: ${baseFileName}`)
+        // Store fallback in cache with original cache key
+        promptCache.set(cacheKey, template)
+        console.log(`[Prompts API] Successfully loaded and cached fallback: ${baseFileName}`)
         return template
       }
     }

@@ -18,6 +18,8 @@ Qur'anic Verses (Ayat):
 
 When you identify a direct quotation from the Qur'an:
 
+You MUST use the exact wording from the most authoritative official {targetLanguage} translation of the Qur'an.
+
 Translate the meaning accurately into {targetLanguage}.
 
 Enclose the translation in quotation marks.

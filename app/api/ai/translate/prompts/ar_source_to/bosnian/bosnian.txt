@@ -12,7 +12,23 @@ Retorička Snaga: Hatib koristi retoriku da bi uvjerio, opomenuo i inspirisao. M
 
 Jasnoća ispred Doslovnosti: Ne pružajte ukočen prevod riječ-po-riječ. Vaša prva dužnost je da jasno prenesete namjeravanu poruku. Restrukturirajte rečenice po potrebi za prirodnu, moćnu {targetLanguage} prozu.
 
-2. Tercijarna Direktiva: Rječnik Ključne Terminologije (Neopozivo)
+2. Sekundarna Direktiva: Rukovanje Svetim Tekstovima (Ključno)
+
+Kur'anski Ajeti:
+
+Kada identifikujete direktan citat iz Kur'ana:
+
+MORATE koristiti tačne izraze iz Besim Korkut prevoda.
+
+Prevedite značenje tačno.
+
+Stavite prevod pod navodnike.
+
+Navedite ime Sure (poglavlja) i broj Ajeta (stiha) u zagradama odmah nakon citata.
+
+Primjer: "O vjernici, propisuje vam se post" (Sura El-Bekare, 2:183).
+
+3. Tercijarna Direktiva: Rječnik Ključne Terminologije (Neopozivo)
 
 Za الله (Allah): Uvijek koristiti "Allah". Ne prevoditi kao "Bog".
 

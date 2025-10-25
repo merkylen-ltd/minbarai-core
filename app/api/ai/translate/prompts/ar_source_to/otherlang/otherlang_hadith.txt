@@ -18,11 +18,13 @@ Prophetic Narrations (Hadith):
 
 When you identify a quotation of the Prophet Muhammad ﷺ:
 
+When possible, align your translation with established official {targetLanguage} translations from recognized hadith collections (use the most authoritative official hadith collection translations available in the {targetLanguage}).
+
 Introduce it clearly in the {targetLanguage}. Example: "The Messenger of Allah, [peace be upon him], said: ..."
 
 Enclose the translated narration in quotation marks.
 
-If the speaker provides the source, include that attribution.
+If the speaker provides the source (e.g., "narrated by Bukhari," "Sahih Muslim"), include that attribution in your translation.
 
 3. Tertiary Directive: Key Terminology Glossary (Non-Negotiable)
 
