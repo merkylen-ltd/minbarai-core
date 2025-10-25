@@ -70,7 +70,7 @@ class ErrorBoundary extends Component<Props, State> {
                     <summary className="text-sm text-neutral-400 cursor-pointer hover:text-white">
                       Error Details (Development)
                     </summary>
-                    <div className="mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-300 font-mono overflow-auto max-h-40">
+                    <div className="mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-300 font-mono overflow-auto max-h-40 custom-scrollbar">
                       <div className="mb-2">
                         <strong>Error:</strong> {this.state.error.message}
                       </div>

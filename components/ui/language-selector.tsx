@@ -118,18 +118,18 @@ export function LanguageSelector({
   const getButtonContent = () => {
     if (variant === 'compact') {
       return (
-        <div className="flex items-center space-x-1">
-          <span className="font-body text-sm text-white">{getLanguageDisplayText(selectedConfig)}</span>
-          <ChevronDown className="h-3 w-3 text-neutral-400" />
+        <div className="flex items-center space-x-1 min-w-0">
+          <span className="font-body text-sm text-white truncate">{getLanguageDisplayText(selectedConfig)}</span>
+          <ChevronDown className="h-3 w-3 text-neutral-400 flex-shrink-0" />
         </div>
       )
     }
 
     if (variant === 'minimal') {
       return (
-        <div className="flex items-center space-x-2">
-          <span className="font-body text-white">{getLanguageDisplayText(selectedConfig)}</span>
-          <ChevronDown className="h-4 w-4 text-neutral-400" />
+        <div className="flex items-center space-x-2 min-w-0">
+          <span className="font-body text-white truncate">{getLanguageDisplayText(selectedConfig)}</span>
+          <ChevronDown className="h-4 w-4 text-neutral-400 flex-shrink-0" />
         </div>
       )
     }
@@ -167,6 +167,7 @@ export function LanguageSelector({
             variant === 'minimal' && "border-none shadow-none bg-transparent text-white hover:bg-white/10",
             className
           )}
+          title={`Current: ${selectedConfig.name} - Click to change`}
         >
           {getButtonContent()}
         </Button>
@@ -189,7 +190,7 @@ export function LanguageSelector({
           </div>
         </div>
 
-        <div className="max-h-64 overflow-y-auto">
+        <div className="max-h-64 overflow-y-auto custom-scrollbar">
           {/* Popular languages */}
           {groupedLanguages.popular.length > 0 && !searchQuery && (
             <>
@@ -328,8 +329,8 @@ export function LanguagePairSelector({
   className
 }: LanguagePairSelectorProps) {
   return (
-    <div className={cn("flex items-center space-x-3", className)}>
-      <div className="flex-1">
+    <div className={cn("flex items-center space-x-3 min-w-0", className)}>
+      <div className="flex-1 min-w-0" title="Select source language (what you speak)">
         <LanguageSelector
           value={sourceLanguage}
           onChange={onSourceChange}
@@ -338,6 +339,7 @@ export function LanguagePairSelector({
           showPopularOnly={showPopularOnly}
           placeholder="Source language"
           variant="minimal"
+          className="w-full min-w-0"
         />
       </div>
       
@@ -345,14 +347,14 @@ export function LanguagePairSelector({
         <button
           onClick={onSwap}
           disabled={disabled}
-          className="p-1.5 text-neutral-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
-          title="Swap languages"
+          className="p-1.5 text-neutral-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center flex-shrink-0"
+          title="Swap source and target languages"
         >
           <ArrowRightLeft className="h-4 w-4" />
         </button>
       )}
       
-      <div className="flex-1">
+      <div className="flex-1 min-w-0" title="Select target language (translation output)">
         <LanguageSelector
           value={targetLanguage}
           onChange={onTargetChange}
@@ -361,6 +363,7 @@ export function LanguagePairSelector({
           showPopularOnly={showPopularOnly}
           placeholder="Target language"
           variant="minimal"
+          className="w-full min-w-0"
         />
       </div>
     </div>

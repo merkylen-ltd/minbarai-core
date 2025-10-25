@@ -70,7 +70,7 @@ const LogoBrand: React.FC<LogoBrandProps> = ({
   return (
     <div className={`flex items-center space-x-2 ${className}`}>
       <LogoIcon className={`${sizeClasses[size]} ${variantClasses[variant]} drop-shadow-sm`} />
-      <span className={`${textSizeClasses[size]} font-heading ${variantClasses[variant]} drop-shadow-sm`}>
+      <span className={`${textSizeClasses[size]} font-heading ${variantClasses[variant]} drop-shadow-sm hidden md:inline`}>
         MinbarAI.com
       </span>
     </div>

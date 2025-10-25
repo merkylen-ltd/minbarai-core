@@ -465,7 +465,7 @@ export default function BillingPage() {
             {invoices.length > 0 && (
               <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-6">
                 <h3 className="text-xl font-display text-white mb-6">Billing History</h3>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto custom-scrollbar">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-white/10">

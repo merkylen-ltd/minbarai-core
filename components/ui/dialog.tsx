@@ -49,7 +49,7 @@ const DialogContent = React.forwardRef<
         // Custom styling to match website theme
         "bg-white/10 backdrop-blur-md border-white/20 rounded-xl shadow-2xl",
         // Ensure proper positioning and centering
-        "mx-4 my-4 max-h-[90vh] overflow-y-auto",
+        "mx-4 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar",
         // Better centering with flexbox approach
         "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2",
         className
