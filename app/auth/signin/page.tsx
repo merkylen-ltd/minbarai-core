@@ -371,7 +371,7 @@ function SignInForm() {
           </form>
 
           {/* Social Login */}
-          <div className="mt-6">
+          <div className="mt-6 hidden">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-accent-500/20"></div>
@@ -381,7 +381,7 @@ function SignInForm() {
               </div>
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 hidden">
               <LoadingButton
                 type="button"
                 variant="outline"
