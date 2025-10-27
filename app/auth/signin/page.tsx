@@ -360,7 +360,7 @@ function SignInForm() {
             </LoadingButton>
 
             {/* Recovery Link */}
-            <div className="text-center text-sm text-neutral-500 mt-4">
+            <div className="hidden text-center text-sm text-neutral-500 mt-4">
               <Link 
                 href="/auth/resend-confirmation" 
                 className="text-accent-400 hover:text-accent-300 transition-colors"
@@ -404,7 +404,7 @@ function SignInForm() {
           </div>
 
           {/* Sign Up Link */}
-          <div className="mt-6 text-center">
+          <div className="hidden mt-6 text-center">
             <p className="text-neutral-400 text-fluid-xs">
               Don&apos;t have an account?{' '}
               <Link

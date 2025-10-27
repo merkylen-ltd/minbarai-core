@@ -140,7 +140,7 @@ function AuthCodeErrorContent() {
               </Link>
             </Button>
             
-            <Button variant="outline" asChild className="w-full">
+            <Button variant="outline" asChild className="hidden w-full">
               <Link href="/auth/signup">
                 Try Signing Up Again
               </Link>

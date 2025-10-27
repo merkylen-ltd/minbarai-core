@@ -161,7 +161,7 @@ function ResendConfirmationForm() {
           </div>
 
           {/* Sign Up Link */}
-          <div className="mt-4 text-center">
+          <div className="hidden mt-4 text-center">
             <p className="text-neutral-400 text-sm">
               Don't have an account?{' '}
               <Link
