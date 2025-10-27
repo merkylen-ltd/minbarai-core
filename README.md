@@ -65,8 +65,8 @@ NEXT_PUBLIC_STRIPE_PRICE_ID=price_1SB0jD484U6B4yaGMAb6nlZ8
 # AI - Translation handled via Voiceflow WS (no Gemini key required)
 
 # VoiceFlow Speech Recognition
-NEXT_PUBLIC_VOICEFLOW_WS_URL=wss://voiceflow-relay-e5l6mfznxq-ey.a.run.app
-NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD=wss://voiceflow-relay-e5l6mfznxq-ey.a.run.app
+NEXT_PUBLIC_VOICEFLOW_WS_URL=wss://voiceflow-relay-e5l6mfznxq-ew.a.run.app
+NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD=wss://voiceflow-relay-e5l6mfznxq-ew.a.run.app
 NEXT_PUBLIC_VOICEFLOW_WS_TOKEN=your_voiceflow_websocket_token
 
 # App URLs
