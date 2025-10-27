@@ -268,7 +268,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
 // Main component with language provider
 export default function LiveCaptioning({ userId }: LiveCaptioningProps) {
   return (
-    <LanguageProvider defaultSource="en" defaultTarget="ar">
+    <LanguageProvider defaultSource="ar" defaultTarget="de">
       <LiveCaptioningInternal userId={userId} />
     </LanguageProvider>
   )
