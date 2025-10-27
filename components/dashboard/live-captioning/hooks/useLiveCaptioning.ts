@@ -207,7 +207,7 @@ ${targetText}
         started_at: usageSession.sessionStartedAt
       } : null
     },
-    isSessionLoading: false, // SSE is always connected
+    isSessionLoading: usageSession.isLoading, // Use actual loading state from SSE
     sessionError: usageSession.error,
     isValidForTranslation: usageSession.isValidForTranslation, // Has time and valid status (true during recording)
     sessionTimeRemaining: usageSession.timeRemainingMinutes,

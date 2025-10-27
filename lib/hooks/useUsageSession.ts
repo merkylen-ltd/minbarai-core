@@ -32,6 +32,7 @@ export function useUsageSession(): UsageSessionReturn {
   
   // Connection and error state
   const [isConnected, setIsConnected] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
   // Refs for managing SSE connection and preventing duplicate requests
@@ -48,6 +49,9 @@ export function useUsageSession(): UsageSessionReturn {
    */
   const processSSEEvent = useCallback((event: SSEEvent) => {
     console.log('[useUsageSession] Received event:', event.type, event)
+    
+    // Set loading to false once we receive any event
+    setIsLoading(false)
     
     // Ignore heartbeat events (just keep connection alive)
     if (event.type === 'connection:heartbeat') {
@@ -350,6 +354,7 @@ export function useUsageSession(): UsageSessionReturn {
     
     // Connection state
     isConnected,
+    isLoading,
     error,
   }
 }

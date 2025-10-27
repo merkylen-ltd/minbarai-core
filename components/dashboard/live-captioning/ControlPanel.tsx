@@ -124,12 +124,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   {sessionTimeRemaining}m left
                 </div>
               )}
-              {sessionTimeRemaining <= 0 && (
+              {sessionTimeRemaining <= 0 && !isSessionLoading && (
                 <div className="text-sm text-red-400 font-body bg-red-500/10 border border-red-500/20 rounded-lg px-2 py-1">
                   Limit reached
                 </div>
               )}
-              {!isValidForTranslation && (
+              {!isValidForTranslation && !isSessionLoading && (
                 <div className="text-sm text-red-400 font-body bg-red-500/10 border border-red-500/20 rounded-lg px-2 py-1">
                   Invalid subscription
                 </div>

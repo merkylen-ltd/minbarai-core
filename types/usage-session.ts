@@ -24,6 +24,7 @@ export interface UsageSessionState {
   
   // Connection state
   isConnected: boolean
+  isLoading: boolean
   error: string | null
 }
 
