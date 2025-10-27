@@ -63,7 +63,7 @@ const SocialProof: React.FC = () => {
           </div>
           <Link 
             href="/auth/signup"
-            className="btn-primary"
+            className="hidden btn-primary"
           >
             Get Started Today
           </Link>

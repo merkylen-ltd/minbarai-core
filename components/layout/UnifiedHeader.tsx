@@ -185,7 +185,7 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
               </Link>
               <Link
                 href="/auth/signup"
-                className="bg-accent-500 hover:bg-accent-400 text-neutral-0 px-4 py-2 rounded-button text-fluid-sm font-heading transition-all duration-200 shadow-glow hover:shadow-glow-lg focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 focus:ring-offset-primary-900 min-h-[44px] md:min-h-0 flex items-center"
+                className="hidden bg-accent-500 hover:bg-accent-400 text-neutral-0 px-4 py-2 rounded-button text-fluid-sm font-heading transition-all duration-200 shadow-glow hover:shadow-glow-lg focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 focus:ring-offset-primary-900 min-h-[44px] md:min-h-0 flex items-center"
               >
                 Sign Up
               </Link>
@@ -275,7 +275,7 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                 <Link
                   href="/auth/signup"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="bg-accent-500 hover:bg-accent-400 text-neutral-0 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 mx-3 mt-2 text-center min-h-[44px] flex items-center justify-center"
+                  className="hidden bg-accent-500 hover:bg-accent-400 text-neutral-0 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 mx-3 mt-2 text-center min-h-[44px] flex items-center justify-center"
                 >
                   Sign Up
                 </Link>

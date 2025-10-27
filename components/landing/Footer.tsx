@@ -102,7 +102,7 @@ const Footer: React.FC = () => {
             </Link>
             <Link
               href="/auth/signup"
-              className="text-accent-400 hover:text-accent-300 transition-colors text-sm font-heading min-h-[44px] md:min-h-0 flex items-center"
+              className="hidden text-accent-400 hover:text-accent-300 transition-colors text-sm font-heading min-h-[44px] md:min-h-0 flex items-center"
             >
               Get Started
             </Link>
