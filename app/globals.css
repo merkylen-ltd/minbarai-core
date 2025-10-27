@@ -277,6 +277,39 @@
     text-align: left;
   }
 
+  /* Arabic text specific improvements */
+  .arabic-text {
+    font-family: 'Amiri', 'Noto Naskh Arabic', 'Noto Kufi Arabic', serif;
+    direction: rtl;
+    line-height: 1.6;
+    padding-top: 0.25em;
+    padding-bottom: 0.15em;
+    vertical-align: baseline;
+    display: inline-block;
+  }
+
+  /* Ensure Arabic diacritics are not cut off */
+  .arabic-text-safe {
+    line-height: 1.8;
+    padding-top: 0.3em;
+    padding-bottom: 0.2em;
+    display: inline-block;
+  }
+
+  /* Special styling for Arabic text with diacritics in typing animation */
+  .typing-arabic-text {
+    font-family: 'Amiri', 'Noto Naskh Arabic', 'Arial', serif;
+    direction: rtl;
+    line-height: 1.6;
+    padding-top: 0.2em;
+    padding-bottom: 0.1em;
+    display: inline-block;
+    vertical-align: baseline;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    margin-top: 0.1em;
+    margin-bottom: 0.1em;
+  }
+
   /* Blink cursor animation */
   @keyframes blink-cursor {
     0%, 50% { opacity: 1; }
@@ -421,6 +454,24 @@
   .section-min-height {
     min-height: 100vh;
     min-height: 100dvh; /* Dynamic viewport height for mobile */
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* Hero section specific styling */
+  .hero-section {
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+  }
+
+  .hero-text-container {
+    overflow: visible;
+    max-width: 100%;
+    word-wrap: break-word;
   }
 
   .card {
@@ -712,6 +763,40 @@
 
   .animate-pulse-glow {
     animation: pulseGlow 2s ease-in-out infinite;
+  }
+
+  /* Typing effect animations */
+  .typing-container {
+    position: relative;
+    display: inline-block;
+    overflow: visible;
+    max-width: 100%;
+  }
+
+  .typing-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background-color: currentColor;
+    margin-left: 2px;
+    animation: blink-cursor 1s infinite;
+    vertical-align: baseline;
+  }
+
+  .typing-text {
+    display: inline-block;
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 2px solid transparent;
+  }
+
+  .typing-text.arabic {
+    direction: rtl;
+    text-align: right;
+  }
+
+  .typing-text.typing-complete {
+    border-right: none;
   }
 
   /* Enhanced shadow effects */

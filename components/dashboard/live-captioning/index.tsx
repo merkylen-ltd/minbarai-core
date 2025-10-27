@@ -51,23 +51,25 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
 
   // Monitor usage status and auto-stop if session becomes inactive during recording
   useEffect(() => {
-    if (speechRecognition.isRecording && liveCaptioning.usageSessionId && liveCaptioning.usageStatus && 
-        (liveCaptioning.usageStatus === 'expired' || liveCaptioning.usageStatus === 'capped' || liveCaptioning.usageStatus === 'closed')) {
-      
+    // Don't process if not recording
+    if (!speechRecognition.isRecording) return
+    
+    // Stop recording if session expires, gets capped, or is closed unexpectedly
+    if (['expired', 'capped', 'closed'].includes(liveCaptioning.usageStatus || '')) {
       speechRecognition.stopRecording()
       
       let message = 'Session has been stopped.'
       if (liveCaptioning.usageStatus === 'expired') {
         message = 'Your session has expired due to inactivity. Please start a new session to continue.'
       } else if (liveCaptioning.usageStatus === 'capped') {
-        message = 'Your session has reached the maximum duration limit (3 hours). Please start a new session to continue.'
+        message = 'Your session has reached the maximum duration limit. Please start a new session to continue.'
       } else if (liveCaptioning.usageStatus === 'closed') {
         message = 'Your session has been closed. Please start a new session to continue.'
       }
       
       liveCaptioning.showAlert('Session Stopped', message, { variant: 'warning', buttonText: 'OK' })
     }
-  }, [speechRecognition.isRecording, liveCaptioning.usageSessionId, liveCaptioning.usageStatus, speechRecognition.stopRecording, liveCaptioning.showAlert])
+  }, [speechRecognition.isRecording, liveCaptioning.usageStatus, speechRecognition.stopRecording, liveCaptioning.showAlert])
 
   // Add Space key handler for start/stop recording
   useEffect(() => {

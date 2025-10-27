@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useSessionData } from '@/lib/hooks/useSessionData'
-import { useUsageTracking } from '@/lib/hooks/useUsageTracking'
+import { useUsageSession } from '@/lib/hooks/useUsageSession'
 import { useDialog } from '@/lib/hooks/useDialog'
 import { useLanguage } from '@/lib/language-context'
 import { getLanguageName } from '@/constants/languages'
@@ -86,26 +85,8 @@ export const useLiveCaptioning = (
     swapLanguages 
   } = languageContext
 
-  // Session data hook
-  const { 
-    sessionData, 
-    isLoading: isSessionLoading, 
-    error: sessionError, 
-    isValidForTranslation, 
-    sessionTimeRemaining, 
-    totalUsageMinutes,
-    fetchSessionData 
-  } = useSessionData()
-
-  // Usage tracking hook
-  const {
-    isActive: isUsageActive,
-    sessionId: usageSessionId,
-    status: usageStatus,
-    capAt,
-    startSession: startUsageSession,
-    stopSession: stopUsageSession
-  } = useUsageTracking()
+  // Unified usage session hook (replaces useSessionData + useUsageTracking)
+  const usageSession = useUsageSession()
 
   // Dialog hook
   const { alertDialog, showAlert, closeAlert } = useDialog()
@@ -214,22 +195,32 @@ ${targetText}
     setTargetLanguage,
     swapLanguages,
     
-    // Session state
-    sessionData,
-    isSessionLoading,
-    sessionError,
-    isValidForTranslation,
-    sessionTimeRemaining,
-    totalUsageMinutes,
-    fetchSessionData,
+    // Session state (from unified hook)
+    sessionData: {
+      isValidSubscription: true, // Get from user context/props if needed
+      isSessionExpired: false,
+      sessionLimitMinutes: usageSession.timeRemainingMinutes + usageSession.totalUsageMinutes,
+      totalUsageMinutes: usageSession.totalUsageMinutes,
+      activeSession: usageSession.sessionId ? {
+        id: usageSession.sessionId,
+        status: usageSession.status,
+        started_at: usageSession.sessionStartedAt
+      } : null
+    },
+    isSessionLoading: false, // SSE is always connected
+    sessionError: usageSession.error,
+    isValidForTranslation: usageSession.isValidForTranslation, // Has time and valid status (true during recording)
+    sessionTimeRemaining: usageSession.timeRemainingMinutes,
+    totalUsageMinutes: usageSession.totalUsageMinutes,
+    fetchSessionData: null, // No longer needed with SSE
     
-    // Usage tracking state
-    isUsageActive,
-    usageSessionId,
-    usageStatus,
-    capAt,
-    startUsageSession,
-    stopUsageSession,
+    // Usage tracking state (from unified hook)
+    isUsageActive: usageSession.isActive,
+    usageSessionId: usageSession.sessionId,
+    usageStatus: usageSession.status,
+    capAt: usageSession.sessionCapAt,
+    startUsageSession: usageSession.startSession,
+    stopUsageSession: usageSession.stopSession,
     
     // Dialog state
     alertDialog,

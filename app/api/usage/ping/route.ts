@@ -19,6 +19,13 @@ interface SessionResponse {
   started_at?: string
   expires_at?: string
   cap_at?: string
+  
+  // NEW: Backend-calculated time data
+  time_remaining_seconds: number
+  total_usage_seconds: number
+  current_session_seconds?: number
+  
+  // Backward compatibility
   totals: {
     total_seconds: number
   }
@@ -46,6 +53,19 @@ async function getTotalUsageSeconds(supabase: any, userId: string): Promise<numb
     console.error('[Usage Tracking] Exception calculating total usage:', err)
     return 0
   }
+}
+
+/**
+ * Helper function to calculate time remaining
+ */
+function calculateTimeRemaining(
+  userSessionLimitMinutes: number,
+  totalUsageSeconds: number,
+  currentSessionSeconds: number = 0
+): number {
+  const limitSeconds = userSessionLimitMinutes * 60
+  const usedSeconds = totalUsageSeconds + currentSessionSeconds
+  return Math.max(0, limitSeconds - usedSeconds)
 }
 
 /**
@@ -221,9 +241,13 @@ export async function POST(request: Request) {
 
       // Return totals for user
       const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
+      const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds)
 
       return NextResponse.json({
         status: 'closed',
+        time_remaining_seconds: timeRemaining,
+        total_usage_seconds: totalSeconds,
+        current_session_seconds: 0,
         totals: { total_seconds: totalSeconds }
       } as SessionResponse)
     }
@@ -268,6 +292,9 @@ export async function POST(request: Request) {
             }
 
             const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
+            const sessionStart = new Date(existingSession.started_at).getTime()
+            const currentSessionSeconds = Math.floor((now.getTime() - sessionStart) / 1000)
+            const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds, currentSessionSeconds)
 
             return NextResponse.json({
               session_id: existingSession.id,
@@ -275,6 +302,9 @@ export async function POST(request: Request) {
               started_at: existingSession.started_at,
               expires_at: ttlExpiry.toISOString(),
               cap_at: existingSession.max_end_at,
+              time_remaining_seconds: timeRemaining,
+              total_usage_seconds: totalSeconds + currentSessionSeconds,
+              current_session_seconds: currentSessionSeconds,
               totals: { total_seconds: totalSeconds }
             } as SessionResponse)
           }
@@ -288,6 +318,8 @@ export async function POST(request: Request) {
         console.log(`[Usage Tracking] [${requestId}] New session created: ${newSession.id}`)
 
         const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
+        const currentSessionSeconds = 0 // Just created
+        const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds, currentSessionSeconds)
 
         return NextResponse.json({
           session_id: newSession.id,
@@ -295,6 +327,9 @@ export async function POST(request: Request) {
           started_at: newSession.started_at,
           expires_at: ttlExpiry.toISOString(),
           cap_at: newSession.max_end_at,
+          time_remaining_seconds: timeRemaining,
+          total_usage_seconds: totalSeconds + currentSessionSeconds,
+          current_session_seconds: currentSessionSeconds,
           totals: { total_seconds: totalSeconds }
         } as SessionResponse)
       } else {
@@ -319,6 +354,9 @@ export async function POST(request: Request) {
         }
 
         const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
+        const sessionStart = new Date(currentSession.started_at).getTime()
+        const currentSessionSeconds = Math.floor((now.getTime() - sessionStart) / 1000)
+        const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds, currentSessionSeconds)
 
         return NextResponse.json({
           session_id: currentSession.id,
@@ -326,6 +364,9 @@ export async function POST(request: Request) {
           started_at: currentSession.started_at,
           expires_at: ttlExpiry.toISOString(),
           cap_at: currentSession.max_end_at,
+          time_remaining_seconds: timeRemaining,
+          total_usage_seconds: totalSeconds + currentSessionSeconds,
+          current_session_seconds: currentSessionSeconds,
           totals: { total_seconds: totalSeconds }
         } as SessionResponse)
       }
