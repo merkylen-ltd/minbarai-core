@@ -14,7 +14,6 @@ function SignInForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailError, setEmailError] = useState('')
@@ -62,11 +61,14 @@ function SignInForm() {
     if (emailParam) {
       // Basic email validation to prevent injection
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (emailRegex.test(emailParam) && emailParam.length <= 254) {
+      // Additional safety checks
+      const hasDangerousChars = /<|>|"|'|`|\\|script|javascript|onerror|onload/i.test(emailParam)
+      
+      if (emailRegex.test(emailParam) && emailParam.length <= 254 && !hasDangerousChars) {
         setEmail(emailParam)
         setTouched(prev => ({ ...prev, email: true }))
       } else {
-        console.warn('Invalid email parameter detected:', emailParam)
+        console.warn('Invalid or potentially dangerous email parameter detected:', emailParam)
       }
     }
   }, [searchParams, showAlert])
@@ -104,6 +106,12 @@ function SignInForm() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Prevent concurrent submissions
+    if (loading) {
+      return
+    }
+    
     setLoading(true)
     setError('')
 
@@ -124,42 +132,86 @@ function SignInForm() {
     }
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+      
+      const response = await fetch('/api/auth/signin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+        signal: controller.signal,
       })
 
-      if (error) {
+      clearTimeout(timeoutId)
+      const data = await response.json()
+
+      if (!response.ok) {
         // Handle specific authentication errors with appropriate dialogs
         let errorTitle = 'Sign In Failed'
-        let errorMessage = error.message
+        let errorMessage = data.message || data.error || 'An error occurred'
         let variant: 'destructive' | 'warning' | 'info' = 'destructive'
 
-        if (error.message.includes('Invalid login credentials')) {
-          errorTitle = 'Invalid Credentials'
-          errorMessage = 'The email or password you entered is incorrect. Please check your credentials and try again.'
-          variant = 'warning'
-        } else if (error.message.includes('Email not confirmed')) {
-          errorTitle = 'Email Not Verified'
-          errorMessage = 'Please check your email and click the verification link before signing in.'
-          variant = 'info'
-        } else if (error.message.includes('Too many requests')) {
+        if (response.status === 429) {
           errorTitle = 'Too Many Attempts'
           errorMessage = 'You have made too many sign-in attempts. Please wait a few minutes before trying again.'
           variant = 'warning'
+        } else if (response.status === 423) {
+          errorTitle = 'Account Locked'
+          errorMessage = data.message || 'Your account has been temporarily locked due to too many failed sign-in attempts.'
+          variant = 'warning'
+        } else if (response.status === 401) {
+          errorTitle = 'Invalid Credentials'
+          // Show remaining attempts if provided
+          if (data.remainingAttempts !== undefined && data.remainingAttempts <= 2 && data.remainingAttempts > 0) {
+            errorMessage = `The email or password you entered is incorrect. ${data.remainingAttempts} attempt${data.remainingAttempts === 1 ? '' : 's'} remaining before account lockout.`
+          } else {
+            errorMessage = data.error || 'The email or password you entered is incorrect. Please check your credentials and try again.'
+          }
+          variant = 'warning'
+        } else if (response.status === 403 && data.message?.includes('verification')) {
+          errorTitle = 'Email Not Verified'
+          errorMessage = 'Please check your email and click the verification link before signing in.'
+          variant = 'info'
+        } else if (response.status === 403 && data.redirectTo) {
+          // Account setup incomplete - redirect to subscribe
+          router.push(data.redirectTo)
+          return
         }
 
         showAlert(errorTitle, errorMessage, {
           variant,
           buttonText: 'OK'
         })
-      } else if (data.user) {
-        router.push('/dashboard')
+      } else if (data.success) {
+        // Successful sign-in
+        router.push(data.redirectTo || '/dashboard')
       }
     } catch (err) {
+      console.error('Sign-in error:', err)
+      
+      // Handle different types of errors
+      let errorTitle = 'Unexpected Error'
+      let errorMessage = 'An unexpected error occurred. Please try again.'
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorTitle = 'Request Timeout'
+          errorMessage = 'The sign-in request took too long. Please check your connection and try again.'
+        } else if (err.message.includes('fetch')) {
+          errorTitle = 'Connection Error'
+          errorMessage = 'Unable to connect to the server. Please check your internet connection.'
+        }
+      }
+      
       showAlert(
-        'Unexpected Error',
-        'An unexpected error occurred. Please try again.',
+        errorTitle,
+        errorMessage,
         {
           variant: 'destructive',
           buttonText: 'OK'
@@ -171,6 +223,11 @@ function SignInForm() {
   }
 
   const handleGoogleSignIn = async () => {
+    // Prevent concurrent submissions
+    if (loading) {
+      return
+    }
+    
     setLoading(true)
     setError('')
 
@@ -283,18 +340,7 @@ function SignInForm() {
               autoComplete="current-password"
             />
 
-            <div className="flex items-center justify-between">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="rememberMe"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 text-accent-500 bg-primary-700/30 border-accent-500/20 rounded focus:ring-accent-400 focus:ring-2 focus:ring-offset-2 focus:ring-offset-primary-900"
-                />
-                <span className="ml-2 text-neutral-50 text-fluid-xs">Remember me</span>
-              </label>
-
+            <div className="flex items-center justify-end">
               <Link
                 href="/auth/forgot-password"
                 className="text-accent-400 hover:text-accent-300 transition-colors text-fluid-xs font-body"
@@ -308,9 +354,20 @@ function SignInForm() {
               fullWidth
               isLoading={loading}
               loadingText="Signing in..."
+              disabled={loading}
             >
               Sign In
             </LoadingButton>
+
+            {/* Recovery Link */}
+            <div className="text-center text-sm text-neutral-500 mt-4">
+              <Link 
+                href="/auth/resend-confirmation" 
+                className="text-accent-400 hover:text-accent-300 transition-colors"
+              >
+                Didn't receive confirmation email?
+              </Link>
+            </div>
           </form>
 
           {/* Social Login */}
@@ -331,6 +388,7 @@ function SignInForm() {
                 fullWidth
                 onClick={handleGoogleSignIn}
                 isLoading={loading}
+                disabled={loading}
                 icon={
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>

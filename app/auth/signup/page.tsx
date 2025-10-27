@@ -67,11 +67,14 @@ function SignUpForm() {
     if (emailParam) {
       // Basic email validation to prevent injection
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (emailRegex.test(emailParam) && emailParam.length <= 254) {
+      // Additional safety checks
+      const hasDangerousChars = /<|>|"|'|`|\\|script|javascript|onerror|onload/i.test(emailParam)
+      
+      if (emailRegex.test(emailParam) && emailParam.length <= 254 && !hasDangerousChars) {
         setEmail(emailParam)
         setTouched(prev => ({ ...prev, email: true }))
       } else {
-        console.warn('Invalid email parameter detected:', emailParam)
+        console.warn('Invalid or potentially dangerous email parameter detected:', emailParam)
       }
     }
   }, [searchParams, showAlert])
@@ -119,8 +122,43 @@ function SignUpForm() {
     }
   }, [email, password, confirmPassword, error])
 
+  const handleResendConfirmation = async (email: string) => {
+    try {
+      const response = await fetch('/api/auth/resend-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        showAlert('Email Sent', data.message, {
+          variant: 'info',
+          buttonText: 'OK'
+        })
+      } else {
+        showAlert('Error', data.error || 'Failed to resend email', {
+          variant: 'destructive',
+          buttonText: 'OK'
+        })
+      }
+    } catch (error) {
+      showAlert('Error', 'Failed to resend confirmation email', {
+        variant: 'destructive',
+        buttonText: 'OK'
+      })
+    }
+  }
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Prevent concurrent submissions
+    if (loading) {
+      return
+    }
+    
     setLoading(true)
     setError('')
 
@@ -156,31 +194,69 @@ function SignUpForm() {
     }
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || window.location.origin}/auth/callback?next=/subscribe`,
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+      
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          email,
+          password,
+          confirmPassword,
+        }),
+        signal: controller.signal,
       })
 
-      if (error) {
+      clearTimeout(timeoutId)
+      const data = await response.json()
+
+      if (!response.ok) {
         // Handle specific signup errors with appropriate dialogs
         let errorTitle = 'Sign Up Failed'
-        let errorMessage = error.message
+        let errorMessage = data.message || data.error || 'An error occurred'
         let variant: 'destructive' | 'warning' | 'info' = 'destructive'
 
-        if (error.message.includes('User already registered')) {
-          errorTitle = 'Account Already Exists'
-          errorMessage = 'An account with this email already exists. Please sign in instead.'
-          variant = 'info'
-        } else if (error.message.includes('Password should be at least')) {
-          errorTitle = 'Weak Password'
-          errorMessage = 'Please choose a stronger password that meets our security requirements.'
+        if (response.status === 429) {
+          errorTitle = 'Too Many Attempts'
+          errorMessage = 'You have made too many sign-up attempts. Please wait a few minutes before trying again.'
           variant = 'warning'
-        } else if (error.message.includes('Invalid email')) {
+        } else         if (response.status === 409) {
+          errorTitle = 'Account Already Exists'
+          errorMessage = data.message || 'An account with this email already exists. Please sign in instead.'
+          variant = 'info'
+          
+          // Show dialog with link to sign-in
+          showAlert(errorTitle, errorMessage, {
+            variant,
+            buttonText: 'Go to Sign In',
+            onButtonClick: () => router.push('/auth/signin')
+          })
+          return
+        } else if (response.status === 403 && data.showResendOption) {
+          // Unverified account - offer to resend
+          errorTitle = 'Email Not Verified'
+          errorMessage = data.message
+          variant = 'info'
+          
+          showAlert(errorTitle, errorMessage, {
+            variant,
+            buttonText: 'Resend Email',
+            onButtonClick: async () => {
+              await handleResendConfirmation(data.email)
+            }
+          })
+          return
+        } else if (data.error?.includes('Password')) {
+          errorTitle = 'Weak Password'
+          errorMessage = data.error
+          variant = 'warning'
+        } else if (data.error?.includes('email')) {
           errorTitle = 'Invalid Email'
-          errorMessage = 'Please enter a valid email address.'
+          errorMessage = data.error
           variant = 'warning'
         }
 
@@ -188,28 +264,43 @@ function SignUpForm() {
           variant,
           buttonText: 'OK'
         })
-      } else if (data.user) {
+      } else if (data.success) {
         // Check if email confirmation is required
-        if (data.user.email_confirmed_at) {
-          // User is immediately confirmed, redirect to subscription
-          router.push('/subscribe')
-        } else {
+        if (data.requiresEmailConfirmation) {
           // Email confirmation required
           showAlert(
             'Check Your Email',
-            'Please check your email and click the confirmation link to complete your registration.',
+            data.message || 'Please check your email and click the confirmation link to complete your registration.',
             {
               variant: 'info',
               buttonText: 'OK'
             }
           )
+        } else {
+          // User is immediately confirmed, redirect to subscription
+          router.push(data.redirectTo || '/subscribe')
         }
       }
     } catch (err) {
       console.error('Signup error:', err)
+      
+      // Handle different types of errors
+      let errorTitle = 'Unexpected Error'
+      let errorMessage = 'An unexpected error occurred. Please try again.'
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorTitle = 'Request Timeout'
+          errorMessage = 'The sign-up request took too long. Please check your connection and try again.'
+        } else if (err.message.includes('fetch')) {
+          errorTitle = 'Connection Error'
+          errorMessage = 'Unable to connect to the server. Please check your internet connection.'
+        }
+      }
+      
       showAlert(
-        'Unexpected Error',
-        'An unexpected error occurred. Please try again.',
+        errorTitle,
+        errorMessage,
         {
           variant: 'destructive',
           buttonText: 'OK'
@@ -221,6 +312,11 @@ function SignUpForm() {
   }
 
   const handleGoogleSignUp = async () => {
+    // Prevent concurrent submissions
+    if (loading) {
+      return
+    }
+    
     setLoading(true)
     setError('')
 
@@ -436,7 +532,7 @@ function SignUpForm() {
               fullWidth
               isLoading={loading}
               loadingText="Creating account..."
-              disabled={!agreedToTerms}
+              disabled={!agreedToTerms || loading}
             >
               Create Account
             </LoadingButton>
@@ -460,6 +556,7 @@ function SignUpForm() {
                 fullWidth
                 onClick={handleGoogleSignUp}
                 isLoading={loading}
+                disabled={loading}
                 icon={
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
