@@ -62,7 +62,7 @@ function ResendConfirmationForm() {
         showAlert('Email Sent', data.message, {
           variant: 'info',
           buttonText: 'OK',
-          onConfirm: () => router.push('/auth/signin')
+          onButtonClick: () => router.push('/auth/signin')
         })
       } else {
         if (response.status === 400 && data.redirectTo) {
@@ -70,7 +70,7 @@ function ResendConfirmationForm() {
           showAlert('Email Already Verified', data.message, {
             variant: 'info',
             buttonText: 'Go to Sign In',
-            onConfirm: () => router.push(data.redirectTo)
+            onButtonClick: () => router.push(data.redirectTo)
           })
         } else {
           showAlert('Error', data.error || 'Failed to resend email', {
@@ -129,7 +129,7 @@ function ResendConfirmationForm() {
               label="Email Address"
               type="email"
               value={email}
-              onChange={handleEmailChange}
+              onChange={(e) => handleEmailChange(e.target.value)}
               placeholder="Enter your email address"
               error={emailError}
               required
