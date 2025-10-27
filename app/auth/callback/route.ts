@@ -1,44 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import { checkRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/auth/rate-limiting'
+import { validateAuthRedirectUrl } from '@/lib/auth/redirect-validation'
 
 // Force dynamic rendering for this route
 export const dynamic = 'force-dynamic'
-
-// Simple in-memory rate limiting (in production, use Redis or similar)
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const windowMs = 15 * 60 * 1000 // 15 minutes
-  const maxAttempts = 10 // Max 10 attempts per 15 minutes
-  
-  const record = rateLimitMap.get(ip)
-  
-  if (!record || now > record.resetTime) {
-    rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs })
-    return true
-  }
-  
-  if (record.count >= maxAttempts) {
-    return false
-  }
-  
-  record.count++
-  return true
-}
 
 export async function GET(request: Request) {
   try {
     const { searchParams, origin } = new URL(request.url)
     
-    // Rate limiting check
-    const clientIP = request.headers.get('x-forwarded-for') || 
-                    request.headers.get('x-real-ip') || 
-                    'unknown'
+    // Rate limiting check using the new utility
+    const rateLimitResult = checkRateLimit(request as any, RATE_LIMIT_CONFIGS.OAUTH_CALLBACK)
     
-    if (!checkRateLimit(clientIP)) {
-      console.error(`Auth callback: Rate limit exceeded for IP: ${clientIP}`)
+    if (!rateLimitResult.allowed) {
+      console.error(`Auth callback: Rate limit exceeded`)
       return NextResponse.redirect(`${origin}/auth/auth-code-error?error=rate_limit_exceeded`)
     }
 
@@ -62,11 +39,10 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/auth/auth-code-error?error=invalid_action`)
     }
 
-    // Validate next parameter to prevent open redirects
-    const allowedPaths = ['/dashboard', '/subscribe', '/auth/signin', '/auth/signup']
-    if (next && !allowedPaths.some(path => next.startsWith(path))) {
-      console.error(`Auth callback: Invalid next parameter: ${next}`)
-      return NextResponse.redirect(`${origin}/auth/auth-code-error?error=invalid_redirect`)
+    // Validate and sanitize redirect URL
+    const validatedNext = validateAuthRedirectUrl(next, origin)
+    if (validatedNext !== next) {
+      console.warn(`Auth callback: Invalid redirect URL ${next}, using ${validatedNext}`)
     }
 
     // Ensure we have a code parameter
@@ -85,7 +61,13 @@ export async function GET(request: Request) {
         const { data: { user } } = await supabase.auth.getUser()
         
         if (user) {
-          console.log(`Auth callback: User authenticated - ${user.email}`)
+          console.log(`Auth callback: User authenticated - ${user.email}, email_confirmed: ${!!user.email_confirmed_at}`)
+          
+          // CRITICAL: Verify email is confirmed
+          if (!user.email_confirmed_at) {
+            console.error(`Auth callback: Email not confirmed for user ${user.email}`)
+            return NextResponse.redirect(`${origin}/auth/auth-code-error?error=email_not_confirmed&description=${encodeURIComponent('Please confirm your email address before continuing.')}`)
+          }
           
           // Check if user exists in our users table
           const { data: existingUser, error: userError } = await supabase
@@ -97,7 +79,7 @@ export async function GET(request: Request) {
           console.log(`Auth callback: User existence check - exists: ${!!existingUser}, error: ${userError?.code || 'none'}`)
 
           // Determine redirect based on user existence and action
-          let redirectTo = next
+          let redirectTo = validatedNext
 
           if (action === 'signin') {
             if (!existingUser) {
@@ -131,8 +113,8 @@ export async function GET(request: Request) {
               
               if (upsertError) {
                 console.error(`Auth callback: Error creating user record:`, upsertError)
-                // If user creation fails, still redirect to subscribe (user might exist from race condition)
-                // The middleware will handle the case where user doesn't exist in database
+                // If user creation fails, redirect to error page instead of continuing
+                return NextResponse.redirect(`${origin}/auth/auth-code-error?error=user_creation_failed&description=${encodeURIComponent('Failed to create user account. Please contact support.')}`)
               }
               
               redirectTo = '/subscribe'
@@ -143,7 +125,9 @@ export async function GET(request: Request) {
           console.log(`Auth callback: Final redirect to ${redirectTo}`)
           
           // Redirect to the determined URL
-          const finalRedirectUrl = `${origin}${redirectTo}`
+          // Ensure redirectTo starts with / for security
+          const safeRedirectTo = redirectTo.startsWith('/') ? redirectTo : `/${redirectTo}`
+          const finalRedirectUrl = `${origin}${safeRedirectTo}`
           console.log(`Auth callback: Redirecting to ${finalRedirectUrl}`)
           return NextResponse.redirect(finalRedirectUrl)
         } else {

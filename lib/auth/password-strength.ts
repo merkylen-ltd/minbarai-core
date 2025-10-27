@@ -10,12 +10,15 @@ export const calculatePasswordStrength = (password: string): PasswordStrength =>
   }
 
   let score = 0;
-  const hasLetter = /[A-Za-z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasUpperCase = /[A-Z]/.test(password);
   const hasNumber = /\d/.test(password);
   const hasSpecial = /[@$!%*?&]/.test(password);
+  
   const checks = {
-    length: password.length >= 6,
-    letter: hasLetter,
+    length: password.length >= 8,
+    lowerCase: hasLowerCase,
+    upperCase: hasUpperCase,
     number: hasNumber,
     special: hasSpecial,
   };
@@ -26,10 +29,17 @@ export const calculatePasswordStrength = (password: string): PasswordStrength =>
   });
 
   // Bonus points for length
-  if (password.length >= 10) score += 0.5;
-  if (password.length >= 14) score += 0.5;
+  if (password.length >= 12) score += 0.5;
+  if (password.length >= 16) score += 0.5;
 
-  // Determine label and color
+  // Penalty for common patterns
+  if (/(.)\1{2,}/.test(password)) score -= 1; // Repeated characters
+  if (/123|abc|qwe|asd/i.test(password)) score -= 0.5; // Common sequences
+
+  // Ensure score is not negative
+  score = Math.max(0, score);
+
+  // Determine label and color based on updated criteria
   if (score < 2) {
     return { score: 1, label: 'Very Weak', color: 'text-red-500' };
   } else if (score < 3) {
@@ -51,14 +61,30 @@ export const validatePassword = (password: string): { isValid: boolean; errors: 
   if (!password) {
     errors.push('Password is required');
   } else {
-    if (password.length < 6) {
-      errors.push('Password must be at least 6 characters long');
+    if (password.length < 8) {
+      errors.push('Password must be at least 8 characters long');
     }
     if (!(/[A-Za-z]/.test(password))) {
       errors.push('Password must contain at least one letter');
     }
     if (!(/\d/.test(password))) {
       errors.push('Password must contain at least one number');
+    }
+    if (!(/[A-Z]/.test(password))) {
+      errors.push('Password must contain at least one uppercase letter');
+    }
+    if (!(/[a-z]/.test(password))) {
+      errors.push('Password must contain at least one lowercase letter');
+    }
+    if (!(/[@$!%*?&]/.test(password))) {
+      errors.push('Password must contain at least one special character (@$!%*?&)');
+    }
+    // Check for common weak patterns
+    if (/(.)\1{2,}/.test(password)) {
+      errors.push('Password cannot contain repeated characters');
+    }
+    if (/123|abc|qwe|asd/i.test(password)) {
+      errors.push('Password cannot contain common sequences');
     }
   }
 

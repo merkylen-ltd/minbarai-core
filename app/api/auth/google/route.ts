@@ -1,16 +1,74 @@
 import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import { checkRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/auth/rate-limiting'
+import { sanitizeEmail, validateEmailStrict } from '@/lib/auth/email-validation'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { email, action } = await request.json()
+    // Rate limiting check
+    const rateLimitResult = checkRateLimit(request, RATE_LIMIT_CONFIGS.AUTH)
     
-    if (!email || !action) {
+    if (!rateLimitResult.allowed) {
+      console.warn(`Rate limit exceeded for Google auth check`)
       return NextResponse.json(
-        { error: 'Email and action are required' },
+        {
+          error: 'Too many requests',
+          message: 'You have made too many authentication requests. Please wait a few minutes before trying again.',
+          retryAfter: rateLimitResult.retryAfter
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': rateLimitResult.retryAfter?.toString() || '900',
+            'X-RateLimit-Limit': RATE_LIMIT_CONFIGS.AUTH.maxAttempts.toString(),
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+            'X-RateLimit-Reset': new Date(rateLimitResult.resetTime).toISOString()
+          }
+        }
+      )
+    }
+
+    let body;
+    try {
+      body = await request.json()
+    } catch (parseError) {
+      return NextResponse.json(
+        { error: 'Invalid request format' },
+        { status: 400 }
+      )
+    }
+
+    const { email, action } = body
+    
+    // Validate input types and presence
+    if (!email || !action || typeof email !== 'string' || typeof action !== 'string') {
+      return NextResponse.json(
+        { error: 'Email and action are required and must be strings' },
+        { status: 400 }
+      )
+    }
+
+    // Validate action parameter
+    if (!['signin', 'signup'].includes(action)) {
+      return NextResponse.json(
+        { error: 'Invalid action. Must be "signin" or "signup"' },
+        { status: 400 }
+      )
+    }
+
+    // Sanitize and validate email
+    const sanitizedEmail = sanitizeEmail(email)
+    const emailValidation = validateEmailStrict(sanitizedEmail)
+    
+    if (!emailValidation.isValid) {
+      return NextResponse.json(
+        { 
+          error: 'Invalid email',
+          details: emailValidation.errors[0]
+        },
         { status: 400 }
       )
     }
@@ -18,11 +76,11 @@ export async function POST(request: Request) {
     const cookieStore = cookies()
     const supabase = createClient(cookieStore)
 
-    // Check if user exists in our users table
+    // Check if user exists in our users table (use sanitized email)
     const { data: existingUser, error: userError } = await supabase
       .from('users')
       .select('id, email, subscription_status')
-      .eq('email', email)
+      .eq('email', sanitizedEmail)
       .single()
 
     if (userError && userError.code !== 'PGRST116') {

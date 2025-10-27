@@ -14,9 +14,13 @@ export default function SignOutButton() {
     try {
       const supabase = createClient()
       await supabase.auth.signOut()
-      router.push('/')
+      
+      // Force a hard redirect to ensure we bypass any middleware caching
+      window.location.href = '/'
     } catch (error) {
       console.error('Error signing out:', error)
+      // Even if there's an error, redirect to main page
+      window.location.href = '/'
     }
   }
 

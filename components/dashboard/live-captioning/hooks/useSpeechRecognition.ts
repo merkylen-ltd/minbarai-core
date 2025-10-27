@@ -31,6 +31,9 @@ export interface UseSpeechRecognitionReturn {
   stopRecording: () => void
   recognitionRef: React.MutableRefObject<VoiceFlowAdapter | null>
   avgTranslationTime: number
+  isStarting: boolean
+  isPromptLoading: boolean
+  promptError: string | null
 }
 
 export const useSpeechRecognition = ({
@@ -50,12 +53,17 @@ export const useSpeechRecognition = ({
   endUsageSession
 }: UseSpeechRecognitionProps): UseSpeechRecognitionReturn => {
   const [isRecording, setIsRecording] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
   const [status, setStatus] = useState<ConnectionStatus>({
     connected: false,
     status: 'disconnected'
   })
   const [avgTranslationTime, setAvgTranslationTime] = useState(0)
   const [isMounted, setIsMounted] = useState(false)
+  const [cachedPrompt, setCachedPrompt] = useState<string>('')
+  const [isPromptLoading, setIsPromptLoading] = useState(false)
+  const [promptError, setPromptError] = useState<string | null>(null)
+  const [promptLanguages, setPromptLanguages] = useState<{source: string, target: string} | null>(null)
 
   const recognitionRef = useRef<VoiceFlowAdapter | null>(null)
   const promptRef = useRef<string>('')
@@ -68,7 +76,62 @@ export const useSpeechRecognition = ({
     setIsMounted(true)
   }, [])
 
-  // Initialize speech recognition when component mounts
+  // Pre-load prompt when language or variant changes
+  const preloadPrompt = useCallback(async () => {
+    setIsPromptLoading(true)
+    setPromptError(null)
+    
+    try {
+      const sourceName = getLanguageName(sourceLanguage)
+      const targetName = getLanguageName(targetLanguage)
+      
+      console.log(`[Speech Recognition] Loading prompt for ${sourceName} → ${targetName} (${translationVariant})`)
+      
+      const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetName)}&source=${encodeURIComponent(sourceName)}&variant=${translationVariant}`, { cache: 'no-store' })
+      const data = await res.json()
+      const prompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
+      
+      if (!prompt) {
+        throw new Error('Empty prompt received from server')
+      }
+      
+      setCachedPrompt(prompt)
+      setPromptLanguages({ source: sourceLanguage, target: targetLanguage })
+      setIsPromptLoading(false)
+      console.log(`[Speech Recognition] Prompt loaded successfully for ${sourceName} → ${targetName}`)
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[Speech Recognition] Failed to load prompt:', errorMsg)
+      setCachedPrompt('')
+      setPromptLanguages(null)
+      setPromptError(`Failed to load translation prompt: ${errorMsg}`)
+      setIsPromptLoading(false)
+    }
+  }, [sourceLanguage, targetLanguage, translationVariant])
+
+  // Pre-load prompt on mount and when dependencies change
+  useEffect(() => {
+    if (isMounted) {
+      preloadPrompt()
+    }
+  }, [isMounted, preloadPrompt])
+
+  // Validate if cached prompt is valid for current language pair
+  const isPromptValid = useCallback(() => {
+    if (!cachedPrompt || !promptLanguages) {
+      return false
+    }
+    
+    // Check if cached prompt matches current language selection
+    if (promptLanguages.source !== sourceLanguage || promptLanguages.target !== targetLanguage) {
+      console.warn('[Speech Recognition] Cached prompt is for wrong language pair')
+      return false
+    }
+    
+    return true
+  }, [cachedPrompt, promptLanguages, sourceLanguage, targetLanguage])
+
+  // Pre-initialize speech recognition immediately for zero-delay start
   useEffect(() => {
     if (!isMounted) return
 
@@ -91,7 +154,7 @@ export const useSpeechRecognition = ({
       return
     }
 
-    // Only create recognition instance if it doesn't exist
+    // Pre-initialize recognition instance immediately for instant start
     if (!recognitionRef.current) {
       try {
         const config = getVoiceFlowConfig()
@@ -137,6 +200,7 @@ export const useSpeechRecognition = ({
         })
 
         recognitionRef.current = recognition
+        console.log('[Speech Recognition] Pre-initialized for instant start')
       } catch (error) {
         setStatus({ 
           connected: false, 
@@ -157,60 +221,95 @@ export const useSpeechRecognition = ({
     }
   }, [isMounted])
 
-  // Update recognition language when source language changes
+  // Handle language changes during recording - reload prompt and update config
   useEffect(() => {
-    if (recognitionRef.current && isRecording) {
-      const languageCode = getASRLanguageCode(sourceLanguage)
+    if (!recognitionRef.current || !isRecording) return
+    
+    const updateLanguageConfig = async () => {
+      const sourceName = getLanguageName(sourceLanguage)
+      const targetName = getLanguageName(targetLanguage)
+      
+      console.log(`[Speech Recognition] Language changed during recording: ${sourceName} → ${targetName}`)
+      
+      // Check if we need a new prompt
+      if (!promptLanguages || promptLanguages.source !== sourceLanguage || promptLanguages.target !== targetLanguage) {
+        console.log('[Speech Recognition] Fetching new prompt for language change...')
+        
+        try {
+          const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetName)}&source=${encodeURIComponent(sourceName)}&variant=${translationVariant}`, { cache: 'no-store' })
+          const data = await res.json()
+          const newPrompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
+          
+          if (!newPrompt) {
+            console.error('[Speech Recognition] Failed to fetch prompt for language change')
+            onError(
+              'Language Change Warning',
+              'Could not load translation prompt for new language pair. Translations may be incorrect until you restart.',
+              'warning'
+            )
+            return
+          }
+          
+          // Update cache
+          setCachedPrompt(newPrompt)
+          setPromptLanguages({ source: sourceLanguage, target: targetLanguage })
+          promptRef.current = newPrompt
+          
+          console.log('[Speech Recognition] New prompt loaded for language change')
+        } catch (error) {
+          console.error('[Speech Recognition] Error fetching prompt during language change:', error)
+          onError(
+            'Language Change Warning',
+            'Failed to update translation settings. Please restart recording for correct translations.',
+            'warning'
+          )
+          return
+        }
+      }
+      
       // Update ASR language
-      recognitionRef.current.setLanguage(languageCode)
-      // Also update translation source to keep server in sync
-      try {
-        recognitionRef.current.enableTranslation({
-          prompt: promptRef.current || '',
-          sourceLanguage: languageCode,
-          targetLanguage: getLanguageName(targetLanguage),
-          geminiModelConfig: {
-            model: 'gemini-2.5-flash-lite',
-            temperature: 0.2,
-            maxTokens: 1000,
-            topP: 1.0
-          }
-        })
-      } catch (err) {
-        console.warn('[VoiceFlow] Failed to update translation source language dynamically:', err)
+      const languageCode = getASRLanguageCode(sourceLanguage)
+      if (recognitionRef.current) {
+        recognitionRef.current.setLanguage(languageCode)
+        
+        // Update translation configuration with the correct prompt
+        try {
+          recognitionRef.current.enableTranslation({
+            prompt: promptRef.current || '',
+            sourceLanguage: languageCode,
+            targetLanguage: targetName,
+            geminiModelConfig: {
+              model: 'gemini-2.5-flash-lite',
+              temperature: 0.2,
+              maxTokens: 1000,
+              topP: 1.0
+            }
+          })
+          console.log('[Speech Recognition] Translation config updated for language change')
+        } catch (err) {
+          console.error('[VoiceFlow] Failed to update translation config during language change:', err)
+          onError(
+            'Configuration Error',
+            'Failed to update translation settings. Please restart recording.',
+            'warning'
+          )
+        }
       }
     }
-  }, [sourceLanguage, isRecording, targetLanguage])
-
-  // Update translation target language dynamically
-  useEffect(() => {
-    if (recognitionRef.current && isRecording) {
-      try {
-        recognitionRef.current.enableTranslation({
-          prompt: promptRef.current || '',
-          sourceLanguage: getASRLanguageCode(sourceLanguage),
-          targetLanguage: getLanguageName(targetLanguage),
-          geminiModelConfig: {
-            model: 'gemini-2.5-flash-lite',
-            temperature: 0.2,
-            maxTokens: 1000,
-            topP: 1.0
-          }
-        })
-      } catch (err) {
-        console.warn('[VoiceFlow] Failed to update translation target language dynamically:', err)
-      }
-    }
-  }, [targetLanguage, isRecording, sourceLanguage])
+    
+    updateLanguageConfig()
+  }, [sourceLanguage, targetLanguage, isRecording, translationVariant, promptLanguages, onError])
 
   // Start recording
   const startRecording = useCallback(async () => {
-    if (isRecording) return
+    if (isRecording || isStarting) return
     
     isUserStoppedRef.current = false
+    setIsStarting(true)
     
     // Check session validity before starting
     if (!isValidForTranslation) {
+      setIsStarting(false)
       setStatus({ 
         connected: false, 
         status: 'error', 
@@ -222,6 +321,7 @@ export const useSpeechRecognition = ({
     // Check if user has time remaining
     const sessionLimitMinutes = sessionData?.sessionLimitMinutes ?? 0
     if (totalUsageMinutes >= sessionLimitMinutes) {
+      setIsStarting(false)
       setStatus({ 
         connected: false, 
         status: 'error', 
@@ -247,6 +347,7 @@ export const useSpeechRecognition = ({
         errorDetails = 'Your browser does not support audio processing. Please update your browser or try a different one.'
       }
       
+      setIsStarting(false)
       setStatus({ 
         connected: false, 
         status: 'error', 
@@ -263,107 +364,117 @@ export const useSpeechRecognition = ({
         throw new Error('Media devices not available')
       }
       
-      // Check microphone permission with mobile-friendly constraints
-      let stream: MediaStream
-      try {
-        // Try exact constraints first (preserves desktop behavior)
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          } 
-        })
-      } catch (error) {
-        // Fallback to ideal constraints for mobile compatibility
-        console.warn('[Live Captioning] Exact audio constraints failed, trying ideal constraints:', error)
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: { ideal: true },
-            noiseSuppression: { ideal: true },
-            autoGainControl: { ideal: true }
-          } 
-        })
+      // Snapshot the UI language selections at click time to avoid race conditions
+      const chosenSource = sourceLanguage
+      const chosenTarget = targetLanguage
+      const sourceNameSnapshot = getLanguageName(chosenSource)
+      const targetNameSnapshot = getLanguageName(chosenTarget)
+      
+      console.log(`[Speech Recognition] Starting with languages: ${chosenSource} (${sourceNameSnapshot}) → ${chosenTarget} (${targetNameSnapshot})`)
+      
+      // CRITICAL: Validate source != target (can't translate language to itself)
+      if (chosenSource === chosenTarget) {
+        setIsStarting(false)
+        console.error('[Live Captioning] Source and target languages are the same!')
+        onError(
+          'Invalid Language Selection',
+          `You cannot translate ${sourceNameSnapshot} to ${targetNameSnapshot}. Please select a different target language.`,
+          'warning'
+        )
+        return
       }
-      stream.getTracks().forEach(track => track.stop()) // Stop test stream
       
-      // Start usage session first
-      await startUsageSession()
+      // STEP 1: Ensure we have a valid prompt BEFORE starting VoiceFlow
+      let prompt = cachedPrompt
       
-      // Wait for usage tracking to initialize (the ping will be sent)
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Start speech recognition
-      if (recognitionRef.current) {
-        setIsRecording(true)
+      // If prompt is not valid for current language pair, fetch it
+      if (!isPromptValid()) {
+        console.log(`[Speech Recognition] Prompt not valid for ${sourceNameSnapshot} → ${targetNameSnapshot}, fetching...`)
+        
         try {
-          // Snapshot the UI language selections at click time to avoid race conditions
-          const chosenSource = sourceLanguage
-          const chosenTarget = targetLanguage
-          const sourceNameSnapshot = getLanguageName(chosenSource)
-          const targetNameSnapshot = getLanguageName(chosenTarget)
-
-          // Load prompt template from server using the snapshotted languages and variant
           const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetNameSnapshot)}&source=${encodeURIComponent(sourceNameSnapshot)}&variant=${translationVariant}`, { cache: 'no-store' })
           const data = await res.json()
-          const prompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
+          prompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
           
-          console.log(`[Speech Recognition] Loading prompt with variant: ${translationVariant}`)
-          
-          // Set translation config via adapter before start
-          if (prompt.trim()) {
-            const targetName = targetNameSnapshot
-            const sourceLangBase = chosenSource
-            const targetLangBase = chosenTarget
-            const asrLangCode = (recognitionRef.current as any).lang || getASRLanguageCode(chosenSource)
-            
-            // CRITICAL: Validate source != target (can't translate language to itself)
-            if (sourceLangBase === targetLangBase) {
-              console.error('[Live Captioning] Source and target languages are the same! Translation disabled.')
-              onError(
-                'Invalid Language Selection',
-                `You cannot translate ${getLanguageName(sourceLangBase)} to ${getLanguageName(targetLangBase)}. Please select a different target language.`,
-                'warning'
-              )
-              // Continue without translation
-              recognitionRef.current.start()
-              console.log('[Live Captioning] VoiceFlow recognition started without translation')
-              return
-            }
-            
-            const effectivePrompt = prompt
-            promptRef.current = effectivePrompt
-            
-            // Configure translation via adapter pre-start
-            try {
-              recognitionRef.current.setTranslationConfig({
-                prompt: effectivePrompt,
-                sourceLanguage: asrLangCode,
-                targetLanguage: targetName,
-                geminiModelConfig: {
-                  model: 'gemini-2.5-flash-lite',
-                  temperature: 0.2,
-                  maxTokens: 1000,
-                  topP: 1.0
-                }
-              })
-            } catch (err) {
-              console.error('[Live Captioning] Failed to set translation config:', err)
-            }
-          } else {
-            console.warn('[Live Captioning] No translation prompt loaded')
+          if (!prompt) {
+            throw new Error('Empty prompt received from server')
           }
-        } catch (e) {
-          console.error('[Live Captioning] Failed to load translation prompt:', e)
+          
+          // Update cache
+          setCachedPrompt(prompt)
+          setPromptLanguages({ source: chosenSource, target: chosenTarget })
+          console.log(`[Speech Recognition] Prompt fetched successfully`)
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Failed to fetch prompt'
+          console.error('[Speech Recognition] Failed to fetch prompt:', errorMsg)
+          setIsStarting(false)
+          onError(
+            'Translation Setup Failed',
+            `Could not load translation prompt: ${errorMsg}. Please try again.`,
+            'destructive'
+          )
+          return
         }
-        recognitionRef.current.start()
       } else {
+        console.log(`[Speech Recognition] Using valid cached prompt for ${sourceNameSnapshot} → ${targetNameSnapshot}`)
+      }
+      
+      // STEP 2: Configure ASR language and translation BEFORE starting VoiceFlow
+      if (!recognitionRef.current) {
         throw new Error('VoiceFlow recognition not initialized')
       }
+      
+      // CRITICAL: Update ASR language to match the currently selected source language
+      const asrLangCode = getASRLanguageCode(chosenSource)
+      recognitionRef.current.setLanguage(asrLangCode)
+      console.log(`[Live Captioning] ASR language set to: ${asrLangCode} for ${sourceNameSnapshot}`)
+      
+      promptRef.current = prompt
+      
+      try {
+        recognitionRef.current.setTranslationConfig({
+          prompt: prompt,
+          sourceLanguage: asrLangCode,
+          targetLanguage: targetNameSnapshot,
+          geminiModelConfig: {
+            model: 'gemini-2.5-flash-lite',
+            temperature: 0.2,
+            maxTokens: 1000,
+            topP: 1.0
+          }
+        })
+        console.log(`[Live Captioning] Translation configured: ${sourceNameSnapshot} (${asrLangCode}) → ${targetNameSnapshot}`)
+      } catch (err) {
+        console.error('[Live Captioning] Failed to set translation config:', err)
+        setIsStarting(false)
+        onError(
+          'Configuration Error',
+          'Failed to configure translation. Please try again.',
+          'destructive'
+        )
+        return
+      }
+      
+      // STEP 3: Start session tracking FIRST (fire and forget - truly non-blocking)
+      // This starts the session but we don't wait for it
+      Promise.resolve().then(() => {
+        startUsageSession().catch(err => {
+          console.warn('[Speech Recognition] Background session start failed:', err)
+        })
+      })
+      
+      // STEP 4: NOW start VoiceFlow immediately with proper configuration
+      setIsRecording(true)
+      setIsStarting(false)
+      recognitionRef.current.start()
+      console.log('[Live Captioning] VoiceFlow recognition started with proper prompt configuration')
+      
     } catch (error) {
       console.error('[Live Captioning] Failed to start recording:', error)
       
       isUserStoppedRef.current = true
+      setIsRecording(false)
+      setIsStarting(false)
       
       let errorMessage = 'Failed to start recording. '
       let errorDetails = ''
@@ -402,12 +513,16 @@ export const useSpeechRecognition = ({
       }
     }
   }, [
-    isRecording, 
+    isRecording,
+    isStarting,
     isValidForTranslation, 
     sessionData, 
     totalUsageMinutes, 
     sourceLanguage, 
     targetLanguage, 
+    translationVariant,
+    cachedPrompt,
+    isPromptValid,
     startUsageSession,
     onError
   ])
@@ -437,7 +552,10 @@ export const useSpeechRecognition = ({
     startRecording,
     stopRecording,
     recognitionRef,
-    avgTranslationTime
+    avgTranslationTime,
+    isStarting,
+    isPromptLoading,
+    promptError
   }
 }
 

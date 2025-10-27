@@ -155,6 +155,9 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
       {/* Control Panel */}
       <ControlPanel
         isRecording={speechRecognition.isRecording}
+        isStarting={speechRecognition.isStarting}
+        isPromptLoading={speechRecognition.isPromptLoading}
+        promptError={speechRecognition.promptError}
         status={speechRecognition.status}
         onStartRecording={speechRecognition.startRecording}
         onStopRecording={speechRecognition.stopRecording}

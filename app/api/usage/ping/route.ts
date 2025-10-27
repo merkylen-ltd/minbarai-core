@@ -107,7 +107,7 @@ async function closeSession(
 }
 
 export async function POST(request: Request) {
-  const requestId = Math.random().toString(36).substring(7) // For tracing
+  const requestId = crypto.randomUUID() // Use cryptographically secure random
   
   try {
     const cookieStore = cookies()

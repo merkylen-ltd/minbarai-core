@@ -7,6 +7,9 @@ import { TranslationVariantSelector } from './TranslationVariantSelector'
 interface ControlPanelProps {
   // Recording state
   isRecording: boolean
+  isStarting: boolean
+  isPromptLoading: boolean
+  promptError: string | null
   status: ConnectionStatus
   onStartRecording: () => void
   onStopRecording: () => void
@@ -48,6 +51,9 @@ interface ControlPanelProps {
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
   isRecording,
+  isStarting,
+  isPromptLoading,
+  promptError,
   status,
   onStartRecording,
   onStopRecording,
@@ -146,15 +152,38 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* 1. Start/Stop Button - Primary Action */}
         <button
           onClick={isRecording ? onStopRecording : onStartRecording}
+          disabled={isStarting || isPromptLoading}
           className={`inline-flex items-center justify-center px-6 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px] ${
             isRecording 
               ? 'bg-red-500 hover:bg-red-600 text-white focus:ring-red-500 shadow-lg hover:shadow-xl' 
+              : (isStarting || isPromptLoading)
+              ? 'bg-accent-500/70 text-white focus:ring-accent-500 shadow-lg'
+              : promptError
+              ? 'bg-red-500/70 text-white focus:ring-red-500 shadow-lg'
               : 'bg-accent-500 hover:bg-accent-400 text-white focus:ring-accent-500 shadow-lg hover:shadow-xl'
           }`}
-          title={`${isRecording ? 'Stop recording (Space)' : 'Start recording (Space)'}`}
+          title={`${
+            isRecording 
+              ? 'Stop recording (Space)' 
+              : isPromptLoading 
+              ? 'Loading translation prompt...' 
+              : isStarting 
+              ? 'Starting recognition...' 
+              : promptError
+              ? 'Error loading prompt - click to retry'
+              : 'Start recording (Space)'
+          }`}
         >
           {isRecording ? <MicOff className="h-4 w-4 mr-2" /> : <Mic className="h-4 w-4 mr-2" />}
-          <span>{isRecording ? 'Stop' : 'Start'}</span>
+          <span>
+            {isRecording 
+              ? 'Stop' 
+              : isPromptLoading 
+              ? 'Loading...' 
+              : isStarting 
+              ? 'Starting...' 
+              : 'Start'}
+          </span>
         </button>
 
         {/* 2. Language Selection - Core Configuration */}
@@ -253,6 +282,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           <Download className="h-4 w-4" />
         </button>
       </div>
+
+      {/* Prompt Error Warning */}
+      {promptError && !isRecording && (
+        <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+          <p className="text-sm text-red-400">
+            <strong>Translation Setup Error:</strong> {promptError}
+          </p>
+        </div>
+      )}
+
+      {/* Prompt Loading Indicator */}
+      {isPromptLoading && !isRecording && (
+        <div className="mt-3 bg-accent-500/10 border border-accent-500/30 rounded-lg px-3 py-2">
+          <p className="text-sm text-accent-400 flex items-center gap-2">
+            <span className="w-2 h-2 bg-accent-400 rounded-full animate-pulse"></span>
+            <span>Loading translation prompt for selected languages...</span>
+          </p>
+        </div>
+      )}
     </div>
   )
 }

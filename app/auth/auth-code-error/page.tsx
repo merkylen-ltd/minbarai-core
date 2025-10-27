@@ -69,6 +69,29 @@ function AuthCodeErrorContent() {
             'Contact support if the issue persists'
           ]
         }
+      case 'user_creation_failed':
+        return {
+          icon: <AlertCircle className="h-6 w-6" />,
+          title: 'Account Creation Failed',
+          message: description || 'Failed to create your user account. This may be due to a temporary issue.',
+          suggestions: [
+            'Try signing up again',
+            'Contact support if the issue persists',
+            'Check your internet connection'
+          ]
+        }
+      case 'email_not_confirmed':
+        return {
+          icon: <AlertCircle className="h-6 w-6" />,
+          title: 'Email Not Confirmed',
+          message: description || 'Your email address has not been confirmed yet. Please check your email and click the confirmation link.',
+          suggestions: [
+            'Check your email inbox and spam folder',
+            'Click the confirmation link in the email',
+            'Request a new confirmation email if the link expired',
+            'Contact support if you need help'
+          ]
+        }
       default:
         return {
           icon: <AlertCircle className="h-6 w-6" />,

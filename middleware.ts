@@ -1,10 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createMiddlewareClient } from '@/lib/supabase/server'
 import { isValidSubscriptionStatus, isCancelledSubscriptionActive } from '@/lib/subscription'
+import { securityHeadersMiddleware } from '@/lib/auth/security-headers'
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next()
-  const supabase = createMiddlewareClient(request, response)
+  
+  // Add security headers to all responses
+  const securedResponse = securityHeadersMiddleware(request, response)
+  
+  const supabase = createMiddlewareClient(request, securedResponse)
 
   // Refresh session if expired - required for Server Components
   const {
@@ -18,7 +23,7 @@ export async function middleware(request: NextRequest) {
     console.log(`Middleware: Dashboard route accessed: ${pathname}`)
     if (!session) {
       console.log('Middleware: No session, redirecting to signin')
-      return NextResponse.redirect(new URL('/auth/signin', request.url))
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/auth/signin', request.url)))
     }
 
     // Check subscription status
@@ -37,7 +42,7 @@ export async function middleware(request: NextRequest) {
 
     if (!user) {
       console.log('Middleware: User not found in database, redirecting to subscribe')
-      return NextResponse.redirect(new URL('/subscribe', request.url))
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
     }
 
     console.log(`Middleware: User subscription status: ${user.subscription_status}`)
@@ -48,7 +53,7 @@ export async function middleware(request: NextRequest) {
       console.log(`Middleware: Cancelled subscription check - period_end: ${user.subscription_period_end}, still_active: ${isStillActive}`)
       if (!isStillActive) {
         console.log('Middleware: Cancelled subscription period ended, redirecting to subscribe')
-        return NextResponse.redirect(new URL('/subscribe', request.url))
+        return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
       } else {
         console.log('Middleware: Cancelled subscription still within paid period, allowing access')
       }
@@ -58,12 +63,12 @@ export async function middleware(request: NextRequest) {
     if (user.subscription_status === 'incomplete') {
       console.log('Middleware: Payment processing, allowing access')
       // Allow access during payment processing
-      return response
+      return securedResponse
     }
 
     if (!isValidSubscriptionStatus(user.subscription_status)) {
       console.log(`Middleware: Invalid subscription status: ${user.subscription_status}, redirecting to subscribe`)
-      return NextResponse.redirect(new URL('/subscribe', request.url))
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
     }
 
     console.log('Middleware: Access granted to dashboard')
@@ -74,7 +79,7 @@ export async function middleware(request: NextRequest) {
     // Allow auth pages with URL parameters (messages from callback)
     if (request.nextUrl.searchParams.has('message')) {
       console.log('Middleware: Allowing auth page with message parameter')
-      return response
+      return securedResponse
     }
 
     // Check if user has valid subscription
@@ -87,19 +92,19 @@ export async function middleware(request: NextRequest) {
     if (user) {
       // Check if cancelled subscription is still within paid period
       if (user.subscription_status === 'canceled' && !isCancelledSubscriptionActive(user.subscription_status, user.subscription_period_end)) {
-        return NextResponse.redirect(new URL('/subscribe', request.url))
+        return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
       }
       
       // Allow access for incomplete status (payment processing) or valid subscription
       if (user.subscription_status === 'incomplete' || isValidSubscriptionStatus(user.subscription_status)) {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+        return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/dashboard', request.url)))
       }
     }
     
-    return NextResponse.redirect(new URL('/subscribe', request.url))
+    return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
   }
 
-  return response
+  return securedResponse
 }
 
 export const config = {
