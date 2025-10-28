@@ -166,7 +166,7 @@ export class VoiceFlowRecognition {
         // CRITICAL FIX: Don't end session on normal closures (1000, 1005)
         // VoiceFlow handles stream rotation internally - we should NOT call finish()
         // Only end session on authentication errors (1008) or critical errors
-        console.log(`WebSocket closed with code ${ev.code} - VoiceFlow will handle reconnection`);
+        // WebSocket closed - VoiceFlow will handle reconnection
         
         // Reset state but don't call finish() - let VoiceFlow handle reconnection
         this.started = false;
@@ -237,7 +237,7 @@ export class VoiceFlowRecognition {
 
   // Set language for recognition
   setLanguage(languageCode: string): void {
-    console.log('[VoiceFlow] Setting language:', this.lang, '->', languageCode);
+    // Set language for recognition
     this.lang = languageCode;
   }
 
@@ -410,21 +410,20 @@ registerProcessor("pcm-worklet", PCMWorklet);
 
     this.cleanup = () => { 
       try { 
-        console.log('[VoiceFlow] Starting cleanup, audioContextClosed:', this.audioContextClosed);
+        // Starting cleanup
         node.disconnect(); 
         src.disconnect(); 
         
         // CRITICAL: Check flag BEFORE attempting to close AudioContext
         if (!this.audioContextClosed && ctx.state !== 'closed') {
-          console.log('[VoiceFlow] Closing AudioContext');
+          // Closing AudioContext
           ctx.close();
           this.audioContextClosed = true;
         } else {
-          console.log('[VoiceFlow] AudioContext already closed, skipping');
+          // AudioContext already closed, skipping
         }
       } catch (error) {
-        console.log('[VoiceFlow] Cleanup error:', error);
-        // Ensure flag is set even if close fails
+        // Cleanup error - ensure flag is set even if close fails
         this.audioContextClosed = true;
       }; 
       stream.getTracks().forEach(t => t.stop()); 
@@ -553,28 +552,28 @@ registerProcessor("pcm-worklet", PCMWorklet);
   }
 
   private finish(reason: "stop" | "abort" | "end"): void {
-    console.log('[VoiceFlow] finish() called with reason:', reason, 'userStopped:', this.userStopped);
+    // finish() called
     
     // CRITICAL FIX: Don't cleanup or close WebSocket for normal operations
     // VoiceFlow handles stream rotation internally - we should NOT interfere
     // Only cleanup for user-initiated stops or critical errors
     
     if (reason === "stop" || reason === "abort") {
-      console.log('[VoiceFlow] User-initiated stop/abort - cleaning up');
+      // User-initiated stop/abort - cleaning up
       // User-initiated stop - cleanup everything
       try { this.ws?.close(); } catch {}
       try { this.cleanup?.(); } catch {}
       this.onaudioend?.(new Event("audioend"));
       this.onend?.(new Event("end"));
     } else if (reason === "end" && this.userStopped) {
-      console.log('[VoiceFlow] User-initiated end - cleaning up');
+      // User-initiated end - cleaning up
       // User-initiated end - cleanup everything
       try { this.ws?.close(); } catch {}
       try { this.cleanup?.(); } catch {}
       this.onaudioend?.(new Event("audioend"));
       this.onend?.(new Event("end"));
     } else {
-      console.log('[VoiceFlow] Normal stream rotation - NO cleanup, letting VoiceFlow handle internally');
+      // Normal stream rotation - NO cleanup, letting VoiceFlow handle internally
     }
     // For normal stream rotations (reason === "end" && !this.userStopped), do NOTHING
     // Let VoiceFlow handle everything internally

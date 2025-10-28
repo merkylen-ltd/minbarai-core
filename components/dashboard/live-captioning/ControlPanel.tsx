@@ -166,7 +166,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             isRecording 
               ? 'Stop recording (Space)' 
               : isPromptLoading 
-              ? 'Loading translation prompt...' 
+              ? 'Loading translation setting...' 
               : isStarting 
               ? 'Starting recognition...' 
               : promptError
@@ -195,7 +195,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               onSourceChange={onSourceLanguageChange}
               onTargetChange={onTargetLanguageChange}
               onSwap={onSwapLanguages}
-              disabled={isRecording}
+              disabled={isRecording || isPromptLoading}
               showPopularOnly={false}
               className="min-w-0 w-full overflow-hidden"
             />
@@ -210,7 +210,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <TranslationVariantSelector
                 value={translationVariant}
                 onChange={onTranslationVariantChange}
-                disabled={isRecording}
+                disabled={isRecording || isPromptLoading}
                 isLoading={isVariantLoading}
               />
             </div>
@@ -297,7 +297,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="mt-3 bg-accent-500/10 border border-accent-500/30 rounded-lg px-3 py-2">
           <p className="text-sm text-accent-400 flex items-center gap-2">
             <span className="w-2 h-2 bg-accent-400 rounded-full animate-pulse"></span>
-            <span>Loading translation prompt for selected languages...</span>
+            <span>Loading translation setting for selected languages...</span>
           </p>
         </div>
       )}

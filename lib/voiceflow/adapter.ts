@@ -133,7 +133,6 @@ export class VoiceFlowAdapter {
     
     // VoiceFlow is continuous - no need to restart for language changes
     // The language will be updated in the next start message sent to the server
-    console.log('[VoiceFlow] Language updated to:', lang, '(continuous mode - no restart needed)');
   }
 
   // Translation controls

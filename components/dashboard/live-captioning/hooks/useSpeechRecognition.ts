@@ -7,6 +7,21 @@ import { checkVoiceFlowCompatibility, isMobileBrowser } from '../utils/browser-u
 import { getLanguageSpecificConfig } from '../utils/language-config'
 import { setupRecognitionHandlers } from '../utils/speech-recognition'
 
+// Debounce utility for language changes
+const debounce = <T extends (...args: any[]) => void>(
+  func: T,
+  delay: number
+): ((...args: Parameters<T>) => void) => {
+  let timeoutId: NodeJS.Timeout | null = null
+  
+  return (...args: Parameters<T>) => {
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
+    timeoutId = setTimeout(() => func(...args), delay)
+  }
+}
+
 export interface UseSpeechRecognitionProps {
   sourceLanguage: string
   targetLanguage: string
@@ -64,6 +79,7 @@ export const useSpeechRecognition = ({
   const [isPromptLoading, setIsPromptLoading] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
   const [promptLanguages, setPromptLanguages] = useState<{source: string, target: string} | null>(null)
+  const [isLanguageChanging, setIsLanguageChanging] = useState(false)
 
   const recognitionRef = useRef<VoiceFlowAdapter | null>(null)
   const promptRef = useRef<string>('')
@@ -71,23 +87,47 @@ export const useSpeechRecognition = ({
   const lastFinalResultTimeRef = useRef<number | null>(null)
   const lastResultEventStartRef = useRef<number | null>(null)
   const translationTimesRef = useRef<number[]>([])
+  
+  // Request cancellation and debouncing refs
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const languageChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const pendingLanguageChangeRef = useRef<{source: string, target: string} | null>(null)
 
   useEffect(() => {
     setIsMounted(true)
   }, [])
 
-  // Pre-load prompt when language or variant changes
-  const preloadPrompt = useCallback(async () => {
+  // Pre-load prompt when language or variant changes with cancellation support
+  const preloadPrompt = useCallback(async (sourceLang?: string, targetLang?: string, variant?: TranslationVariant) => {
+    const currentSource = sourceLang || sourceLanguage
+    const currentTarget = targetLang || targetLanguage
+    const currentVariant = variant || translationVariant
+    
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    // Create new abort controller
+    abortControllerRef.current = new AbortController()
+    const currentAbortController = abortControllerRef.current
+    
     setIsPromptLoading(true)
     setPromptError(null)
     
     try {
-      const sourceName = getLanguageName(sourceLanguage)
-      const targetName = getLanguageName(targetLanguage)
+      const sourceName = getLanguageName(currentSource)
+      const targetName = getLanguageName(currentTarget)
       
-      console.log(`[Speech Recognition] Loading prompt for ${sourceName} → ${targetName} (${translationVariant})`)
+      const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetName)}&source=${encodeURIComponent(sourceName)}&variant=${currentVariant}`, { 
+        cache: 'no-store',
+        signal: currentAbortController.signal
+      })
       
-      const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetName)}&source=${encodeURIComponent(sourceName)}&variant=${translationVariant}`, { cache: 'no-store' })
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+      }
+      
       const data = await res.json()
       const prompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
       
@@ -95,16 +135,33 @@ export const useSpeechRecognition = ({
         throw new Error('Empty prompt received from server')
       }
       
-      setCachedPrompt(prompt)
-      setPromptLanguages({ source: sourceLanguage, target: targetLanguage })
-      setIsPromptLoading(false)
-      console.log(`[Speech Recognition] Prompt loaded successfully for ${sourceName} → ${targetName}`)
+      // Only update if this request wasn't cancelled and is still the current request
+      if (!currentAbortController.signal.aborted && abortControllerRef.current === currentAbortController) {
+        setCachedPrompt(prompt)
+        setPromptLanguages({ source: currentSource, target: currentTarget })
+        setIsPromptLoading(false)
+      }
     } catch (error) {
+      // Don't update state if request was cancelled
+      if (currentAbortController.signal.aborted) {
+        return
+      }
+      
+      // Only show error if this is still the current request
+      if (abortControllerRef.current !== currentAbortController) {
+        return
+      }
+      
+      // Handle specific abort errors gracefully
+      if (error instanceof Error && error.name === 'AbortError') {
+        return
+      }
+      
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[Speech Recognition] Failed to load prompt:', errorMsg)
+      console.error('[Speech Recognition] Failed to load translation setting:', errorMsg)
       setCachedPrompt('')
       setPromptLanguages(null)
-      setPromptError(`Failed to load translation prompt: ${errorMsg}`)
+      setPromptError(`Failed to load translation setting: ${errorMsg}`)
       setIsPromptLoading(false)
     }
   }, [sourceLanguage, targetLanguage, translationVariant])
@@ -124,7 +181,6 @@ export const useSpeechRecognition = ({
     
     // Check if cached prompt matches current language selection
     if (promptLanguages.source !== sourceLanguage || promptLanguages.target !== targetLanguage) {
-      console.warn('[Speech Recognition] Cached prompt is for wrong language pair')
       return false
     }
     
@@ -200,7 +256,6 @@ export const useSpeechRecognition = ({
         })
 
         recognitionRef.current = recognition
-        console.log('[Speech Recognition] Pre-initialized for instant start')
       } catch (error) {
         setStatus({ 
           connected: false, 
@@ -218,91 +273,163 @@ export const useSpeechRecognition = ({
           // Ignore cleanup errors
         }
       }
+      
+      // Cleanup abort controller
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+      }
+      
+      // Cleanup timeouts
+      if (languageChangeTimeoutRef.current) {
+        clearTimeout(languageChangeTimeoutRef.current)
+        languageChangeTimeoutRef.current = null
+      }
     }
   }, [isMounted])
 
-  // Handle language changes during recording - reload prompt and update config
+  // Debounced language change handler for recording sessions
+  const debouncedLanguageChange = useCallback(
+    debounce(async (sourceLang: string, targetLang: string) => {
+      if (!recognitionRef.current || !isRecording) return
+      
+      setIsLanguageChanging(true)
+      
+      try {
+        const sourceName = getLanguageName(sourceLang)
+        const targetName = getLanguageName(targetLang)
+        
+        // Validate language pair
+        if (sourceLang === targetLang) {
+          setIsLanguageChanging(false)
+          return
+        }
+        
+        // Check if we need a new prompt
+        const needsNewPrompt = !promptLanguages || 
+          promptLanguages.source !== sourceLang || 
+          promptLanguages.target !== targetLang
+        
+        if (needsNewPrompt) {
+          // Cancel any existing prompt request
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+          }
+          
+          abortControllerRef.current = new AbortController()
+          const currentAbortController = abortControllerRef.current
+          
+          try {
+            const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetName)}&source=${encodeURIComponent(sourceName)}&variant=${translationVariant}`, { 
+              cache: 'no-store',
+              signal: currentAbortController.signal
+            })
+            
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+            }
+            
+            const data = await res.json()
+            const newPrompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
+            
+            if (!newPrompt) {
+              throw new Error('Empty prompt received from server')
+            }
+            
+            // Only update if request wasn't cancelled and is still the current request
+            if (!currentAbortController.signal.aborted && abortControllerRef.current === currentAbortController) {
+              setCachedPrompt(newPrompt)
+              setPromptLanguages({ source: sourceLang, target: targetLang })
+              promptRef.current = newPrompt
+            }
+          } catch (error) {
+            if (currentAbortController.signal.aborted) {
+              setIsLanguageChanging(false)
+              return
+            }
+            
+            // Only show error if this is still the current request
+            if (abortControllerRef.current !== currentAbortController) {
+              setIsLanguageChanging(false)
+              return
+            }
+            
+            // Handle specific abort errors gracefully
+            if (error instanceof Error && error.name === 'AbortError') {
+              setIsLanguageChanging(false)
+              return
+            }
+            
+            onError(
+              'Language Change Warning',
+              'Failed to update translation settings. Please restart recording for correct translations.',
+              'warning'
+            )
+            setIsLanguageChanging(false)
+            return
+          }
+        }
+        
+        // Update ASR language and translation config
+        const languageCode = getASRLanguageCode(sourceLang)
+        if (recognitionRef.current && !abortControllerRef.current?.signal.aborted) {
+          try {
+            // Update ASR language first
+            recognitionRef.current.setLanguage(languageCode)
+            
+            // Update translation configuration
+            recognitionRef.current.setTranslationConfig({
+              prompt: promptRef.current || '',
+              sourceLanguage: languageCode,
+              targetLanguage: targetName,
+              geminiModelConfig: {
+                model: 'gemini-2.5-flash-lite',
+                temperature: 0.2,
+                maxTokens: 1000,
+                topP: 1.0
+              }
+            })
+          } catch (err) {
+            onError(
+              'Configuration Error',
+              'Failed to update translation settings. Please restart recording.',
+              'warning'
+            )
+          }
+        }
+        
+        setIsLanguageChanging(false)
+      } catch (error) {
+        setIsLanguageChanging(false)
+        onError(
+          'Language Change Error',
+          'An unexpected error occurred during language change. Please restart recording.',
+          'warning'
+        )
+      }
+    }, 500), // 500ms debounce delay
+    [isRecording, promptLanguages, translationVariant, onError]
+  )
+
+  // Handle language changes during recording with debouncing
   useEffect(() => {
     if (!recognitionRef.current || !isRecording) return
     
-    const updateLanguageConfig = async () => {
-      const sourceName = getLanguageName(sourceLanguage)
-      const targetName = getLanguageName(targetLanguage)
-      
-      console.log(`[Speech Recognition] Language changed during recording: ${sourceName} → ${targetName}`)
-      
-      // Check if we need a new prompt
-      if (!promptLanguages || promptLanguages.source !== sourceLanguage || promptLanguages.target !== targetLanguage) {
-        console.log('[Speech Recognition] Fetching new prompt for language change...')
-        
-        try {
-          const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetName)}&source=${encodeURIComponent(sourceName)}&variant=${translationVariant}`, { cache: 'no-store' })
-          const data = await res.json()
-          const newPrompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
-          
-          if (!newPrompt) {
-            console.error('[Speech Recognition] Failed to fetch prompt for language change')
-            onError(
-              'Language Change Warning',
-              'Could not load translation prompt for new language pair. Translations may be incorrect until you restart.',
-              'warning'
-            )
-            return
-          }
-          
-          // Update cache
-          setCachedPrompt(newPrompt)
-          setPromptLanguages({ source: sourceLanguage, target: targetLanguage })
-          promptRef.current = newPrompt
-          
-          console.log('[Speech Recognition] New prompt loaded for language change')
-        } catch (error) {
-          console.error('[Speech Recognition] Error fetching prompt during language change:', error)
-          onError(
-            'Language Change Warning',
-            'Failed to update translation settings. Please restart recording for correct translations.',
-            'warning'
-          )
-          return
-        }
-      }
-      
-      // Update ASR language
-      const languageCode = getASRLanguageCode(sourceLanguage)
-      if (recognitionRef.current) {
-        recognitionRef.current.setLanguage(languageCode)
-        
-        // Update translation configuration with the correct prompt
-        try {
-          recognitionRef.current.enableTranslation({
-            prompt: promptRef.current || '',
-            sourceLanguage: languageCode,
-            targetLanguage: targetName,
-            geminiModelConfig: {
-              model: 'gemini-2.5-flash-lite',
-              temperature: 0.2,
-              maxTokens: 1000,
-              topP: 1.0
-            }
-          })
-          console.log('[Speech Recognition] Translation config updated for language change')
-        } catch (err) {
-          console.error('[VoiceFlow] Failed to update translation config during language change:', err)
-          onError(
-            'Configuration Error',
-            'Failed to update translation settings. Please restart recording.',
-            'warning'
-          )
-        }
-      }
+    // Store pending language change
+    pendingLanguageChangeRef.current = { source: sourceLanguage, target: targetLanguage }
+    
+    // Clear any existing timeout
+    if (languageChangeTimeoutRef.current) {
+      clearTimeout(languageChangeTimeoutRef.current)
     }
     
-    updateLanguageConfig()
-  }, [sourceLanguage, targetLanguage, isRecording, translationVariant, promptLanguages, onError])
+    // Debounce the language change
+    debouncedLanguageChange(sourceLanguage, targetLanguage)
+  }, [sourceLanguage, targetLanguage, isRecording, debouncedLanguageChange])
 
-  // Start recording
+  // Start recording with language change protection
   const startRecording = useCallback(async () => {
-    if (isRecording || isStarting) return
+    if (isRecording || isStarting || isLanguageChanging) return
     
     isUserStoppedRef.current = false
     setIsStarting(true)
@@ -370,12 +497,9 @@ export const useSpeechRecognition = ({
       const sourceNameSnapshot = getLanguageName(chosenSource)
       const targetNameSnapshot = getLanguageName(chosenTarget)
       
-      console.log(`[Speech Recognition] Starting with languages: ${chosenSource} (${sourceNameSnapshot}) → ${chosenTarget} (${targetNameSnapshot})`)
-      
       // CRITICAL: Validate source != target (can't translate language to itself)
       if (chosenSource === chosenTarget) {
         setIsStarting(false)
-        console.error('[Live Captioning] Source and target languages are the same!')
         onError(
           'Invalid Language Selection',
           `You cannot translate ${sourceNameSnapshot} to ${targetNameSnapshot}. Please select a different target language.`,
@@ -389,10 +513,25 @@ export const useSpeechRecognition = ({
       
       // If prompt is not valid for current language pair, fetch it
       if (!isPromptValid()) {
-        console.log(`[Speech Recognition] Prompt not valid for ${sourceNameSnapshot} → ${targetNameSnapshot}, fetching...`)
         
         try {
-          const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetNameSnapshot)}&source=${encodeURIComponent(sourceNameSnapshot)}&variant=${translationVariant}`, { cache: 'no-store' })
+          // Cancel any existing request
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+          }
+          
+          abortControllerRef.current = new AbortController()
+          const currentAbortController = abortControllerRef.current
+          
+          const res = await fetch(`/api/prompts?target=${encodeURIComponent(targetNameSnapshot)}&source=${encodeURIComponent(sourceNameSnapshot)}&variant=${translationVariant}`, { 
+            cache: 'no-store',
+            signal: currentAbortController.signal
+          })
+          
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+          }
+          
           const data = await res.json()
           prompt = (data && typeof data.prompt === 'string') ? data.prompt : ''
           
@@ -400,23 +539,33 @@ export const useSpeechRecognition = ({
             throw new Error('Empty prompt received from server')
           }
           
-          // Update cache
-          setCachedPrompt(prompt)
-          setPromptLanguages({ source: chosenSource, target: chosenTarget })
-          console.log(`[Speech Recognition] Prompt fetched successfully`)
+          // Only update if request wasn't cancelled and is still the current request
+          if (!currentAbortController.signal.aborted && abortControllerRef.current === currentAbortController) {
+            setCachedPrompt(prompt)
+            setPromptLanguages({ source: chosenSource, target: chosenTarget })
+          }
         } catch (error) {
+          // Don't show error if request was cancelled
+          if (abortControllerRef.current?.signal.aborted) {
+            setIsStarting(false)
+            return
+          }
+          
+          // Handle specific abort errors gracefully
+          if (error instanceof Error && error.name === 'AbortError') {
+            setIsStarting(false)
+            return
+          }
+          
           const errorMsg = error instanceof Error ? error.message : 'Failed to fetch prompt'
-          console.error('[Speech Recognition] Failed to fetch prompt:', errorMsg)
           setIsStarting(false)
           onError(
             'Translation Setup Failed',
-            `Could not load translation prompt: ${errorMsg}. Please try again.`,
+            `Could not load translation setting: ${errorMsg}. Please try again.`,
             'destructive'
           )
           return
         }
-      } else {
-        console.log(`[Speech Recognition] Using valid cached prompt for ${sourceNameSnapshot} → ${targetNameSnapshot}`)
       }
       
       // STEP 2: Configure ASR language and translation BEFORE starting VoiceFlow
@@ -427,7 +576,6 @@ export const useSpeechRecognition = ({
       // CRITICAL: Update ASR language to match the currently selected source language
       const asrLangCode = getASRLanguageCode(chosenSource)
       recognitionRef.current.setLanguage(asrLangCode)
-      console.log(`[Live Captioning] ASR language set to: ${asrLangCode} for ${sourceNameSnapshot}`)
       
       promptRef.current = prompt
       
@@ -443,9 +591,7 @@ export const useSpeechRecognition = ({
             topP: 1.0
           }
         })
-        console.log(`[Live Captioning] Translation configured: ${sourceNameSnapshot} (${asrLangCode}) → ${targetNameSnapshot}`)
       } catch (err) {
-        console.error('[Live Captioning] Failed to set translation config:', err)
         setIsStarting(false)
         onError(
           'Configuration Error',
@@ -458,8 +604,8 @@ export const useSpeechRecognition = ({
       // STEP 3: Start session tracking FIRST (fire and forget - truly non-blocking)
       // This starts the session but we don't wait for it
       Promise.resolve().then(() => {
-        startUsageSession().catch(err => {
-          console.warn('[Speech Recognition] Background session start failed:', err)
+        startUsageSession().catch(() => {
+          // Background session start failed - silently handle
         })
       })
       
@@ -467,10 +613,8 @@ export const useSpeechRecognition = ({
       setIsRecording(true)
       setIsStarting(false)
       recognitionRef.current.start()
-      console.log('[Live Captioning] VoiceFlow recognition started with proper prompt configuration')
       
     } catch (error) {
-      console.error('[Live Captioning] Failed to start recording:', error)
       
       isUserStoppedRef.current = true
       setIsRecording(false)
@@ -527,18 +671,33 @@ export const useSpeechRecognition = ({
     onError
   ])
 
-  // Stop recording
+  // Stop recording with cleanup
   const stopRecording = useCallback(() => {
     if (!isRecording) return
     
     isUserStoppedRef.current = true
     setIsRecording(false)
     
+    // Cancel any pending language changes
+    if (languageChangeTimeoutRef.current) {
+      clearTimeout(languageChangeTimeoutRef.current)
+      languageChangeTimeoutRef.current = null
+    }
+    
+    // Cancel any pending prompt requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    
+    // Clear pending language change
+    pendingLanguageChangeRef.current = null
+    
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop()
       } catch (error) {
-        console.warn('[Live Captioning] Error stopping recognition:', error)
+        // Silently handle stop errors
       }
     }
     
@@ -554,7 +713,7 @@ export const useSpeechRecognition = ({
     recognitionRef,
     avgTranslationTime,
     isStarting,
-    isPromptLoading,
+    isPromptLoading: isPromptLoading || isLanguageChanging,
     promptError
   }
 }
