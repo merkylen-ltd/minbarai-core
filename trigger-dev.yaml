@@ -1,0 +1,10 @@
+name: minbarai-dev-trigger
+description: "Trigger build on pushes to dev branch"
+repository: projects/gen-lang-client-0842740671/locations/europe-west1/connections/minbarai-core/repositories/merkylen-ltd-minbarai-core
+branchPattern: ^dev$
+filename: cloudbuild.yaml
+substitutions:
+  _REGION: europe-west1
+  _SERVICE_NAME_DEV: minbarai-dev
+  _SERVICE_NAME_PROD: minbarai-pro
+  _CUSTOM_DOMAIN: minbarai.com

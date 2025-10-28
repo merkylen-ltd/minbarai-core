@@ -70,9 +70,9 @@ Use `public/voiceflow.js` in a page and connect to your WS endpoint. Pass the WS
     targetLanguage: 'Arabic',
     geminiConfig: {
       model: 'gemini-2.5-flash-lite',
-      temperature: 0.2,
+      temperature: 0.4,
       maxTokens: 1000,
-      topP: 1.0,
+      topP: 0.8,
     },
   });
 
@@ -103,7 +103,7 @@ rec.enableTranslation({
   prompt: 'Translate from {sourceLanguage} to {targetLanguage}.\nText: {transcript}',
   sourceLanguage: 'auto',     // e.g. 'en-US', 'ar-SA', 'de-AT', or 'auto'
   targetLanguage: 'French',   // e.g. 'English', 'Arabic', 'German', 'French', 'Spanish'
-  geminiConfig: { model: 'gemini-2.5-flash-lite', temperature: 0.2, maxTokens: 1000, topP: 1.0 }
+  geminiConfig: { model: 'gemini-2.5-flash-lite', temperature: 0.4, maxTokens: 1000, topP: 1.0 }
 });
 
 // Update languages mid-session (re-sends config to server)

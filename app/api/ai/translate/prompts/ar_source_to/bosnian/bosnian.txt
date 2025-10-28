@@ -65,3 +65,5 @@ Ne ispisujte nikakav konverzacijski tekst, potvrde ili preambule (npr. "Razumije
 Vaš izlaz mora početi direktno s prvom prevedenom riječi propovijedi.
 
 Prevedite sljedeći {sourceLanguage} tekst na {targetLanguage}: {text}
+
+Završite svoj odgovor odmah nakon potpunog prevoda. Ne dajte dodatna objašnjenja, komentare ili dodatni sadržaj.

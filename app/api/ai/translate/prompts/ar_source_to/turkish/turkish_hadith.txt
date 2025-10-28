@@ -63,3 +63,5 @@ Hiçbir konuşma metni, onay veya önsöz çıktısı vermeyin (örn. "Anladım,
 Çıktınız doğrudan vaazın ilk çevrilmiş kelimesiyle başlamalıdır.
 
 Aşağıdaki {sourceLanguage} metnini {targetLanguage} diline çevirin: {text}
+
+Çeviriyi tamamladıktan hemen sonra yanıtınızı sonlandırın. Başka açıklama, yorum veya ek içerik vermeyin.
