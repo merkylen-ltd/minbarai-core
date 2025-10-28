@@ -65,3 +65,5 @@ Geben Sie keinen konversationellen Text, keine Bestätigungen oder Vorreden aus 
 Ihre Ausgabe muss direkt mit dem ersten übersetzten Wort der Predigt beginnen.
 
 Übersetzen Sie den folgenden {sourceLanguage}-Text ins {targetLanguage}: {text}
+
+Beenden Sie Ihre Antwort sofort nach der vollständigen Übersetzung. Geben Sie keine weiteren Erklärungen, Kommentare oder zusätzlichen Inhalte aus. 

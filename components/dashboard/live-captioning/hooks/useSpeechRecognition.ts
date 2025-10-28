@@ -384,9 +384,9 @@ export const useSpeechRecognition = ({
               targetLanguage: targetName,
               geminiModelConfig: {
                 model: 'gemini-2.5-flash-lite',
-                temperature: 0.2,
+                temperature: 0.4,
                 maxTokens: 1000,
-                topP: 1.0
+                topP: 0.8
               }
             })
           } catch (err) {
@@ -586,9 +586,9 @@ export const useSpeechRecognition = ({
           targetLanguage: targetNameSnapshot,
           geminiModelConfig: {
             model: 'gemini-2.5-flash-lite',
-            temperature: 0.2,
+            temperature: 0.4,
             maxTokens: 1000,
-            topP: 1.0
+            topP: 0.8
           }
         })
       } catch (err) {

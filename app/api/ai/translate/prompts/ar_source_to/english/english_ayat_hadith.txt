@@ -77,3 +77,5 @@ Do not output any conversational text, acknowledgments, preambles, or confirmati
 Your output must begin directly with the first translated word of the sermon.
 
 Translate the following {sourceLanguage} text to {targetLanguage}: {text}
+
+End your response immediately after the complete translation. Do not provide any further explanations, comments, or additional content.
