@@ -86,7 +86,8 @@ ENV NODE_OPTIONS="--max-old-space-size=1024"
 # Copy built application with proper ownership
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# Copy public assets directly from build context to ensure availability
+COPY --chown=nextjs:nodejs public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/cache ./.next/cache
 
 # Switch to non-root user
