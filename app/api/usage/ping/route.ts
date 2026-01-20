@@ -1,13 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Constants for the ping-based usage tracking system
 const TTL_SECONDS = 3 * 60 // 3 minutes TTL
-// Note: MAX_SESSION_DURATION_SECONDS removed - now using user's session_limit_minutes from database
 
 interface PingRequest {
   active: boolean
@@ -20,7 +20,7 @@ interface SessionResponse {
   expires_at?: string
   cap_at?: string
   
-  // NEW: Backend-calculated time data
+  // Backend-calculated time data
   time_remaining_seconds: number
   total_usage_seconds: number
   current_session_seconds?: number
@@ -31,24 +31,29 @@ interface SessionResponse {
   }
 }
 
+interface UsageSessionRecord {
+  duration_seconds: number | null
+}
+
 /**
  * Helper function to calculate total usage seconds for a user
- * Uses a single aggregation query for performance
+ * ONLY counts CLOSED sessions (those with duration_seconds set)
+ * Active sessions are calculated separately using real-time elapsed time
  */
-async function getTotalUsageSeconds(supabase: any, userId: string): Promise<number> {
+async function getTotalUsageSeconds(supabase: SupabaseClient, userId: string): Promise<number> {
   try {
     const { data, error } = await supabase
       .from('usage_sessions')
       .select('duration_seconds')
       .eq('user_id', userId)
-      .not('duration_seconds', 'is', null)
+      .not('duration_seconds', 'is', null) // Only closed sessions have duration_seconds
 
     if (error) {
       console.error('[Usage Tracking] Error fetching total usage:', error)
       return 0
     }
 
-    return data?.reduce((sum: number, session: any) => sum + (session.duration_seconds || 0), 0) || 0
+    return data?.reduce((sum: number, session: UsageSessionRecord) => sum + (session.duration_seconds || 0), 0) || 0
   } catch (err) {
     console.error('[Usage Tracking] Exception calculating total usage:', err)
     return 0
@@ -57,6 +62,9 @@ async function getTotalUsageSeconds(supabase: any, userId: string): Promise<numb
 
 /**
  * Helper function to calculate time remaining
+ * @param userSessionLimitMinutes - User's total session limit in minutes
+ * @param totalUsageSeconds - Total seconds already used (from closed sessions)
+ * @param currentSessionSeconds - Seconds elapsed in current active session (if any)
  */
 function calculateTimeRemaining(
   userSessionLimitMinutes: number,
@@ -66,6 +74,29 @@ function calculateTimeRemaining(
   const limitSeconds = userSessionLimitMinutes * 60
   const usedSeconds = totalUsageSeconds + currentSessionSeconds
   return Math.max(0, limitSeconds - usedSeconds)
+}
+
+/**
+ * Calculate the correct max_end_at for a new session based on REMAINING time
+ * This is critical - max_end_at should be the earlier of:
+ * 1. NOW + remaining_time (so user can't exceed their limit)
+ * 2. NOW + 3 hours (hard cap per session for UX)
+ */
+function calculateMaxEndAt(
+  now: Date,
+  userSessionLimitMinutes: number,
+  totalUsageSeconds: number
+): Date {
+  const limitSeconds = userSessionLimitMinutes * 60
+  const remainingSeconds = Math.max(0, limitSeconds - totalUsageSeconds)
+  
+  // Hard cap of 3 hours per individual session for UX purposes
+  const maxSingleSessionSeconds = 3 * 60 * 60
+  
+  // Use the smaller of remaining time or max single session length
+  const effectiveMaxSeconds = Math.min(remainingSeconds, maxSingleSessionSeconds)
+  
+  return new Date(now.getTime() + effectiveMaxSeconds * 1000)
 }
 
 /**
@@ -110,7 +141,7 @@ export async function POST(request: Request) {
   const requestId = crypto.randomUUID() // Use cryptographically secure random
   
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const {
@@ -153,9 +184,7 @@ export async function POST(request: Request) {
 
     const now = new Date()
     const ttlExpiry = new Date(now.getTime() + TTL_SECONDS * 1000)
-    // Use user's actual session limit from database instead of hardcoded value
-    const userSessionLimitSeconds = (userData.session_limit_minutes || 180) * 60
-    const maxEndTime = new Date(now.getTime() + userSessionLimitSeconds * 1000)
+    const userSessionLimitMinutes = userData.session_limit_minutes || 180
 
     console.log(`[Usage Tracking] [${requestId}] Ping from user ${user.id}, active=${active}`)
 
@@ -241,7 +270,7 @@ export async function POST(request: Request) {
 
       // Return totals for user
       const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
-      const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds)
+      const timeRemaining = calculateTimeRemaining(userSessionLimitMinutes, totalSeconds)
 
       return NextResponse.json({
         status: 'closed',
@@ -254,8 +283,27 @@ export async function POST(request: Request) {
 
     if (active === true) {
       if (!currentSession) {
-        // Create new session
-        console.log(`[Usage Tracking] [${requestId}] Creating new session for user ${user.id}`)
+        // CRITICAL: Check time remaining BEFORE creating a new session
+        const totalSecondsBeforeCreate = await getTotalUsageSeconds(supabase, user.id)
+        const timeRemainingBeforeCreate = calculateTimeRemaining(userSessionLimitMinutes, totalSecondsBeforeCreate)
+        
+        // Don't allow creating a session if limit is already reached
+        if (timeRemainingBeforeCreate <= 0) {
+          console.warn(`[Usage Tracking] [${requestId}] User ${user.id} has no time remaining (used: ${totalSecondsBeforeCreate}s, limit: ${userSessionLimitMinutes * 60}s)`)
+          return NextResponse.json({
+            status: 'capped',
+            time_remaining_seconds: 0,
+            total_usage_seconds: totalSecondsBeforeCreate,
+            current_session_seconds: 0,
+            totals: { total_seconds: totalSecondsBeforeCreate },
+            error: 'Session limit reached. No remaining time available.'
+          } as SessionResponse & { error: string }, { status: 403 })
+        }
+        
+        // Calculate correct max_end_at based on REMAINING time (not full limit)
+        const maxEndTime = calculateMaxEndAt(now, userSessionLimitMinutes, totalSecondsBeforeCreate)
+        
+        console.log(`[Usage Tracking] [${requestId}] Creating new session for user ${user.id} (remaining: ${timeRemainingBeforeCreate}s, max_end_at: ${maxEndTime.toISOString()})`)
         
         const { data: newSession, error: createError } = await supabase
           .from('usage_sessions')
@@ -294,7 +342,7 @@ export async function POST(request: Request) {
             const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
             const sessionStart = new Date(existingSession.started_at).getTime()
             const currentSessionSeconds = Math.floor((now.getTime() - sessionStart) / 1000)
-            const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds, currentSessionSeconds)
+            const timeRemaining = calculateTimeRemaining(userSessionLimitMinutes, totalSeconds, currentSessionSeconds)
 
             return NextResponse.json({
               session_id: existingSession.id,
@@ -317,9 +365,9 @@ export async function POST(request: Request) {
 
         console.log(`[Usage Tracking] [${requestId}] New session created: ${newSession.id}`)
 
-        const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
+        const totalSeconds = totalSecondsBeforeCreate // Reuse already fetched value
         const currentSessionSeconds = 0 // Just created
-        const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds, currentSessionSeconds)
+        const timeRemaining = timeRemainingBeforeCreate // Reuse already calculated value
 
         return NextResponse.json({
           session_id: newSession.id,
@@ -356,7 +404,7 @@ export async function POST(request: Request) {
         const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
         const sessionStart = new Date(currentSession.started_at).getTime()
         const currentSessionSeconds = Math.floor((now.getTime() - sessionStart) / 1000)
-        const timeRemaining = calculateTimeRemaining(userData.session_limit_minutes || 180, totalSeconds, currentSessionSeconds)
+        const timeRemaining = calculateTimeRemaining(userSessionLimitMinutes, totalSeconds, currentSessionSeconds)
 
         return NextResponse.json({
           session_id: currentSession.id,

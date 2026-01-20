@@ -95,6 +95,15 @@ const nextConfig = {
         message: /A Node\.js API is used/
       }
     ];
+
+    // Enable polling mode to work around ENOSPC file watcher limit
+    if (dev) {
+      config.watchOptions = {
+        poll: 1000, // Check for changes every second
+        aggregateTimeout: 300, // Delay before rebuilding after the first change
+        ignored: ['**/node_modules', '**/.git', '**/.next']
+      };
+    }
     
     return config;
   },

@@ -97,44 +97,47 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
-    // Check if user already exists in auth system
-    const { data: authUser, error: authUserError } = await supabase.auth.admin.listUsers()
+    // Check if user already exists via the public.users table
+    // This avoids using admin API which requires service role key
+    const { data: existingPublicUser, error: publicUserError } = await supabase
+      .from('users')
+      .select('id, email, email_confirmed_at')
+      .eq('email', sanitizedEmail)
+      .single()
 
-    if (authUser && authUser.users && !authUserError) {
-      const existingUser = authUser.users.find(user => user.email === sanitizedEmail)
-      
-      if (existingUser) {
-        // User exists - check if email is confirmed
-        if (existingUser.email_confirmed_at) {
-          // Verified user - tell them to sign in
-          console.warn(`Sign-up attempt with verified email: ${sanitizedEmail}`)
-          return NextResponse.json(
-            { 
-              error: 'Account already exists',
-              message: 'An account with this email already exists. Please sign in instead.',
-              redirectTo: '/auth/signin',
-              showResendOption: false
-            },
-            { status: 409 } // 409 Conflict
-          )
-        } else {
-          // Unverified user - offer to resend confirmation
-          console.warn(`Sign-up attempt with unverified email: ${sanitizedEmail}`)
-          return NextResponse.json(
-            { 
-              error: 'Email not verified',
-              message: 'An account with this email exists but is not verified. Would you like us to resend the confirmation email?',
-              showResendOption: true,
-              email: sanitizedEmail
-            },
-            { status: 403 } // 403 Forbidden
-          )
-        }
+    if (existingPublicUser && !publicUserError) {
+      // User exists in public.users table - check if email is confirmed
+      if (existingPublicUser.email_confirmed_at) {
+        // Verified user - tell them to sign in
+        console.warn(`Sign-up attempt with verified email: ${sanitizedEmail}`)
+        return NextResponse.json(
+          { 
+            error: 'Account already exists',
+            message: 'An account with this email already exists. Please sign in instead.',
+            redirectTo: '/auth/signin',
+            showResendOption: false
+          },
+          { status: 409 } // 409 Conflict
+        )
+      } else {
+        // Unverified user - offer to resend confirmation
+        console.warn(`Sign-up attempt with unverified email: ${sanitizedEmail}`)
+        return NextResponse.json(
+          { 
+            error: 'Email not verified',
+            message: 'An account with this email exists but is not verified. Would you like us to resend the confirmation email?',
+            showResendOption: true,
+            email: sanitizedEmail
+          },
+          { status: 403 } // 403 Forbidden
+        )
       }
     }
+    
+    // Note: PGRST116 means "no rows returned" which is expected for new users
 
     // Get the origin for redirect URL
     const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL

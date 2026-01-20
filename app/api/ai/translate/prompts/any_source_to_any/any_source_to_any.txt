@@ -42,7 +42,7 @@ You must identify {sourceLanguage} honorifics and replace them with the standard
 
 Allah (as a proper name) -> Must remain "Allah". Do not translate to the generic word for "God" in the {targetLanguage}.
 
-3. Final Output Directive (STRICT - NO FLUFF):
+4. Final Output Directive (STRICT - NO FLUFF):
 
 You will now be given the text to translate.
 

@@ -601,12 +601,10 @@ export const useSpeechRecognition = ({
         return
       }
       
-      // STEP 3: Start session tracking FIRST (fire and forget - truly non-blocking)
+      // STEP 3: Start session tracking (fire and forget - non-blocking)
       // This starts the session but we don't wait for it
-      Promise.resolve().then(() => {
-        startUsageSession().catch(() => {
-          // Background session start failed - silently handle
-        })
+      startUsageSession().catch((err) => {
+        console.error('[Speech] Failed to start usage session:', err?.message || err)
       })
       
       // STEP 4: NOW start VoiceFlow immediately with proper configuration

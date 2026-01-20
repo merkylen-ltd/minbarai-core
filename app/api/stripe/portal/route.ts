@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 
 export async function POST(request: Request) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const {

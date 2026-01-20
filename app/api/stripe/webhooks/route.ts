@@ -5,6 +5,23 @@ import Stripe from 'stripe'
 
 export const runtime = 'nodejs'
 
+// Type definitions for webhook event status updates
+interface WebhookEventStatusUpdate {
+  status: 'processing' | 'completed' | 'failed'
+  updated_at: string
+  processing_started_at?: string
+  processing_completed_at?: string
+  processing_error?: string
+  retry_count?: number
+}
+
+// Type definitions for user subscription updates
+interface UserSubscriptionUpdate {
+  subscription_status: string
+  updated_at: string
+  subscription_period_end?: string
+}
+
 // Lazy initialization of Supabase client to avoid build-time errors
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -27,33 +44,45 @@ const WEBHOOK_MAX_SIZE = 1024 * 1024 // 1MB max payload size
 const WEBHOOK_RATE_LIMIT_WINDOW = 60 * 1000 // 1 minute
 const WEBHOOK_RATE_LIMIT_MAX_REQUESTS = 100 // 100 requests per minute per IP
 
-// In-memory rate limiting (consider using Redis in production for distributed systems)
+// In-memory rate limiting for webhooks
+// Note: In serverless, this resets on cold starts, but provides basic protection
+// For production distributed systems, consider using Redis or database-backed rate limiting
 const webhookRateLimitMap = new Map<string, { count: number; resetTime: number }>()
 
-// Cleanup old rate limit entries periodically
-setInterval(() => {
-  const now = Date.now()
-  webhookRateLimitMap.forEach((data, ip) => {
-    if (now > data.resetTime) {
-      webhookRateLimitMap.delete(ip)
-    }
-  })
-}, 5 * 60 * 1000) // Cleanup every 5 minutes
-
+/**
+ * Check webhook rate limit for an IP
+ * Cleans up expired entries on each check to prevent memory growth
+ */
 function checkWebhookRateLimit(ip: string): boolean {
   const now = Date.now()
-  const ipLimit = webhookRateLimitMap.get(ip)
   
-  if (!ipLimit || now > ipLimit.resetTime) {
-    webhookRateLimitMap.set(ip, { count: 1, resetTime: now + WEBHOOK_RATE_LIMIT_WINDOW })
+  // Clean up expired entries (probabilistic to reduce overhead)
+  if (Math.random() < 0.1) {
+    const entries = Array.from(webhookRateLimitMap.entries())
+    for (let i = 0; i < entries.length; i++) {
+      const [key, data] = entries[i]
+      if (now > data.resetTime) {
+        webhookRateLimitMap.delete(key)
+      }
+    }
+  }
+  
+  const record = webhookRateLimitMap.get(ip)
+  
+  if (!record || now > record.resetTime) {
+    // New window - reset count
+    webhookRateLimitMap.set(ip, {
+      count: 1,
+      resetTime: now + WEBHOOK_RATE_LIMIT_WINDOW
+    })
     return true
   }
   
-  if (ipLimit.count >= WEBHOOK_RATE_LIMIT_MAX_REQUESTS) {
+  if (record.count >= WEBHOOK_RATE_LIMIT_MAX_REQUESTS) {
     return false
   }
   
-  ipLimit.count++
+  record.count++
   return true
 }
 
@@ -61,7 +90,7 @@ function checkWebhookRateLimit(ip: string): boolean {
  * Database-backed idempotency check
  * Returns true if event was already processed, false if new
  */
-async function checkWebhookIdempotency(eventId: string, eventType: string, payload: any): Promise<boolean> {
+async function checkWebhookIdempotency(eventId: string, eventType: string, payload: unknown): Promise<boolean> {
   try {
     const supabaseAdmin = getSupabaseAdmin()
     // Try to insert the event record
@@ -106,7 +135,7 @@ async function updateWebhookEventStatus(
 ) {
   try {
     const supabaseAdmin = getSupabaseAdmin()
-    const updateData: any = {
+    const updateData: WebhookEventStatusUpdate = {
       status,
       updated_at: new Date().toISOString()
     }
@@ -523,7 +552,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
       subscriptionPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString()
     }
 
-    const updateData: any = {
+    const updateData: UserSubscriptionUpdate = {
       subscription_status: 'canceled',
       updated_at: new Date().toISOString(),
     }

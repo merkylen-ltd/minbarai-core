@@ -3,6 +3,7 @@ import { stripe, getURL, PRICE_ID } from '@/lib/stripe/config'
 import { PRICING_CONFIG, getPlanById, PricingPlan } from '@/lib/pricing'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import Stripe from 'stripe'
 
 export const runtime = 'nodejs'
 
@@ -161,7 +162,7 @@ export async function POST(request: Request) {
       )
     }
     
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const {
@@ -307,7 +308,7 @@ export async function POST(request: Request) {
     console.log(`- Cancel URL: ${cancelUrl}`)
 
     // Create checkout session with additional configurations for better UX and security
-    const sessionParams: any = {
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
       line_items: [
         {
           price: finalPriceId,
@@ -359,7 +360,7 @@ export async function POST(request: Request) {
       url: session.url,
       session_id: session.id 
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error creating checkout session:', error)
     
     // Provide more specific error messages based on error type

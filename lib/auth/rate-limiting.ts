@@ -30,41 +30,78 @@ export function checkRateLimit(
   const now = Date.now()
   const key = config.keyGenerator ? config.keyGenerator(request) : getDefaultKey(request)
   
+  // Clean up expired entries periodically (1% chance per request to avoid overhead)
+  if (Math.random() < 0.01) {
+    cleanupExpiredEntries()
+  }
+  
   const record = rateLimitStore.get(key)
   
-  // If no record exists or window has expired, create new record
-  if (!record || now > record.resetTime) {
-    const newRecord = {
+  // No existing record - create new one
+  if (!record) {
+    rateLimitStore.set(key, {
       count: 1,
       resetTime: now + config.windowMs
-    }
-    rateLimitStore.set(key, newRecord)
-    
+    })
     return {
       allowed: true,
       remaining: config.maxAttempts - 1,
-      resetTime: newRecord.resetTime
+      resetTime: now + config.windowMs
     }
   }
   
-  // Check if limit exceeded
-  if (record.count >= config.maxAttempts) {
+  // Record exists but window has expired - reset
+  if (now > record.resetTime) {
+    rateLimitStore.set(key, {
+      count: 1,
+      resetTime: now + config.windowMs
+    })
+    return {
+      allowed: true,
+      remaining: config.maxAttempts - 1,
+      resetTime: now + config.windowMs
+    }
+  }
+  
+  // Within window - check count
+  const newCount = record.count + 1
+  
+  if (newCount > config.maxAttempts) {
+    // Rate limit exceeded
+    const retryAfter = Math.ceil((record.resetTime - now) / 1000)
     return {
       allowed: false,
       remaining: 0,
       resetTime: record.resetTime,
-      retryAfter: Math.ceil((record.resetTime - now) / 1000)
+      retryAfter
     }
   }
   
-  // Increment counter
-  record.count++
-  rateLimitStore.set(key, record)
+  // Update count
+  rateLimitStore.set(key, {
+    count: newCount,
+    resetTime: record.resetTime
+  })
   
   return {
     allowed: true,
-    remaining: config.maxAttempts - record.count,
+    remaining: config.maxAttempts - newCount,
     resetTime: record.resetTime
+  }
+}
+
+/**
+ * Clean up expired entries from the rate limit store
+ * Prevents memory growth in long-running processes
+ */
+function cleanupExpiredEntries(): void {
+  const now = Date.now()
+  const entries = Array.from(rateLimitStore.entries())
+  for (let i = 0; i < entries.length; i++) {
+    const [key, record] = entries[i]
+    if (now > record.resetTime) {
+      rateLimitStore.delete(key)
+    }
   }
 }
 

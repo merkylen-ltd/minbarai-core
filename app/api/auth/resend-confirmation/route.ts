@@ -76,24 +76,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
-    // Check if user exists and is unverified
-    const { data: users, error: userError } = await supabase.auth.admin.listUsers()
+    // Check if user exists and is unverified via the public.users table
+    // This avoids using admin API which requires service role key
+    const { data: existingUser, error: userError } = await supabase
+      .from('users')
+      .select('id, email, email_confirmed_at')
+      .eq('email', sanitizedEmail)
+      .single()
 
-    if (userError || !users || !users.users) {
-      // Don't reveal if email exists - security best practice
-      console.log(`Resend confirmation requested for non-existent email: ${sanitizedEmail}`)
-      return NextResponse.json({
-        success: true,
-        message: 'If an unverified account exists with this email, a confirmation link has been sent.'
-      }, { status: 200 })
-    }
-
-    const user = users.users.find(u => u.email === sanitizedEmail)
-    
-    if (!user) {
+    // If user not found in public.users table - don't reveal this to prevent enumeration
+    if (userError || !existingUser) {
       // Don't reveal if email exists - security best practice
       console.log(`Resend confirmation requested for non-existent email: ${sanitizedEmail}`)
       return NextResponse.json({
@@ -103,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Only resend if email is not confirmed
-    if (user.email_confirmed_at) {
+    if (existingUser.email_confirmed_at) {
       // Email already confirmed - tell them to sign in
       console.log(`Resend confirmation requested for verified email: ${sanitizedEmail}`)
       return NextResponse.json({

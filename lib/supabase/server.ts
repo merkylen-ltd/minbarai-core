@@ -50,16 +50,13 @@ export const createMiddlewareClient = (
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
+          // Set cookie on request for server-side access
           request.cookies.set({
             name,
             value,
             ...options,
           })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
+          // Set cookie on the passed-in response (mutate directly, don't create new)
           response.cookies.set({
             name,
             value,
@@ -67,16 +64,13 @@ export const createMiddlewareClient = (
           })
         },
         remove(name: string, options: CookieOptions) {
+          // Remove cookie from request
           request.cookies.set({
             name,
             value: '',
             ...options,
           })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
+          // Remove cookie from the passed-in response (mutate directly)
           response.cookies.set({
             name,
             value: '',

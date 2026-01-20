@@ -50,7 +50,7 @@ For رضي الله عنه (RadiAllahu 'anhu): After mentioning a Companion, you
 
 For Islamic Concepts (e.g., Taqwa, Ihsan): For complex concepts, use the transliterated Arabic term first, followed by a concise, accurate explanation in the {targetLanguage}. Example: "...this is the essence of Taqwa (the {targetLanguage} phrase for 'God-consciousness' or 'pious reverence')."
 
-3. Final Output Directive (STRICT - NO FLUFF):
+4. Final Output Directive (STRICT - NO FLUFF):
 
 You will now be given the text to translate.
 

@@ -4,20 +4,46 @@ import { join } from 'path'
 
 export const dynamic = 'force-dynamic'
 
-type TranslationVariant = 'normal' | 'quran' | 'hadith' | 'quran_hadith'
+// Valid translation variants
+const VALID_VARIANTS = ['normal', 'quran', 'hadith', 'quran_hadith'] as const
+type TranslationVariant = typeof VALID_VARIANTS[number]
 
-// In-memory prompt cache
-const promptCache = new Map<string, string>()
+// Arabic language variations that should use ar_source_to prompts
+const ARABIC_VARIANTS = ['arabic', 'ar', 'عربي', 'العربية']
+
+// In-memory prompt cache with timestamps for cache busting in development
+interface CachedPrompt {
+  content: string
+  timestamp: number
+}
+const promptCache = new Map<string, CachedPrompt>()
+
+// Cache TTL in milliseconds (5 minutes in production, 10 seconds in development)
+const CACHE_TTL = process.env.NODE_ENV === 'production' ? 5 * 60 * 1000 : 10 * 1000
 
 // Map language codes to folder names
 function getPromptFolderName(languageCode: string): string {
+  const normalized = languageCode.toLowerCase().trim()
   const mapping: Record<string, string> = {
     'english': 'english',
+    'en': 'english',
     'turkish': 'turkish',
+    'tr': 'turkish',
+    'türkçe': 'turkish',
     'german': 'german',
-    'bosnian': 'bosnian'
+    'de': 'german',
+    'deutsch': 'german',
+    'bosnian': 'bosnian',
+    'bs': 'bosnian',
+    'bosanski': 'bosnian'
   }
-  return mapping[languageCode.toLowerCase()] || 'otherlang'
+  return mapping[normalized] || 'otherlang'
+}
+
+// Check if source language is Arabic
+function isArabicSource(sourceLanguage: string): boolean {
+  const normalized = sourceLanguage.toLowerCase().trim()
+  return ARABIC_VARIANTS.includes(normalized)
 }
 
 // Map variant to file suffix
@@ -31,29 +57,72 @@ function getVariantSuffix(variant: TranslationVariant): string {
   return suffixMap[variant] || ''
 }
 
-function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: TranslationVariant = 'normal') {
+// Validate variant parameter
+function isValidVariant(variant: string): variant is TranslationVariant {
+  return VALID_VARIANTS.includes(variant as TranslationVariant)
+}
+
+// Sanitize language name for template replacement
+function sanitizeLanguageName(lang: string): string {
+  // Capitalize first letter and trim
+  const trimmed = lang.trim()
+  if (!trimmed) return 'English'
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+}
+
+// Apply template replacements
+function applyTemplateReplacements(template: string, targetLanguage: string, sourceLanguage: string): string {
+  return template
+    // Replace standard placeholders
+    .replace(/{targetLanguage}/g, targetLanguage)
+    .replace(/{sourceLanguage}/g, sourceLanguage)
+    // Also replace variations that might appear in examples
+    .replace(/{Target Language}/g, targetLanguage)
+    .replace(/{Source Language}/g, sourceLanguage)
+    // Replace the text placeholder with transcript for client compatibility
+    .replace(/{text}/g, '{transcript}')
+}
+
+// Generate a fallback prompt when files cannot be loaded
+function generateFallbackPrompt(targetLanguage: string, sourceLanguage: string): string {
+  return `You are a professional translator. Translate the following ${sourceLanguage} text to ${targetLanguage} accurately and naturally.
+
+Your response must contain ONLY the translated text.
+Do not include any explanations, acknowledgments, or additional content.
+
+Translate the following ${sourceLanguage} text to ${targetLanguage}: {transcript}
+
+End your response immediately after the translation.`
+}
+
+function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: TranslationVariant = 'normal'): string {
+  // Sanitize inputs
+  const sanitizedTarget = sanitizeLanguageName(targetLanguage)
+  const sanitizedSource = sanitizeLanguageName(sourceLanguage)
+  
   try {
     // Create cache key
-    const cacheKey = `${sourceLanguage}-${targetLanguage}-${variant}`
+    const cacheKey = `${sanitizedSource}-${sanitizedTarget}-${variant}`
     
-    // Check cache first
-    if (promptCache.has(cacheKey)) {
+    // Check cache first with TTL
+    const cached = promptCache.get(cacheKey)
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
       console.log(`[Prompts API] Cache hit for: ${cacheKey}`)
-      return promptCache.get(cacheKey)!
+      return cached.content
     }
     
     console.log(`[Prompts API] Cache miss for: ${cacheKey}`)
     
     const baseDir = join(process.cwd(), 'app', 'api', 'ai', 'translate', 'prompts')
-    const targetLower = targetLanguage.toLowerCase()
-    const sourceLower = sourceLanguage.toLowerCase()
+    const targetLower = sanitizedTarget.toLowerCase()
+    const sourceLower = sanitizedSource.toLowerCase()
     const suffix = getVariantSuffix(variant)
     
     let folderPath: string
     let fileName: string
     
     // Determine folder path based on source language
-    if (sourceLower === 'arabic') {
+    if (isArabicSource(sourceLower)) {
       // Arabic source - use ar_source_to folder
       const targetFolder = getPromptFolderName(targetLower)
       folderPath = join(baseDir, 'ar_source_to', targetFolder)
@@ -70,25 +139,22 @@ function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: Tra
     
     // Try to load the specific variant
     if (existsSync(filePath)) {
-      let template = readFileSync(filePath, 'utf-8')
-      template = template
-        .replace(/{targetLanguage}/g, targetLanguage)
-        .replace(/{sourceLanguage}/g, sourceLanguage)
-        .replace('{text}', '{transcript}')
+      const rawTemplate = readFileSync(filePath, 'utf-8')
+      const template = applyTemplateReplacements(rawTemplate, sanitizedTarget, sanitizedSource)
       
-      // Store in cache
-      promptCache.set(cacheKey, template)
+      // Store in cache with timestamp
+      promptCache.set(cacheKey, { content: template, timestamp: Date.now() })
       console.log(`[Prompts API] Successfully loaded and cached: ${fileName}`)
       return template
     }
     
     // Fallback: try base variant (normal) if specific variant doesn't exist
     if (variant !== 'normal') {
-      const baseFolderPath = sourceLower === 'arabic' 
+      const baseFolderPath = isArabicSource(sourceLower)
         ? join(baseDir, 'ar_source_to', getPromptFolderName(targetLower))
         : join(baseDir, 'any_source_to_any')
       
-      const baseFileName = sourceLower === 'arabic'
+      const baseFileName = isArabicSource(sourceLower)
         ? `${getPromptFolderName(targetLower)}.txt`
         : 'any_source_to_any.txt'
       
@@ -97,37 +163,72 @@ function loadPrompt(targetLanguage: string, sourceLanguage: string, variant: Tra
       console.log(`[Prompts API] Variant ${variant} not found, falling back to: ${baseFilePath}`)
       
       if (existsSync(baseFilePath)) {
-        let template = readFileSync(baseFilePath, 'utf-8')
-        template = template
-          .replace(/{targetLanguage}/g, targetLanguage)
-          .replace(/{sourceLanguage}/g, sourceLanguage)
-          .replace('{text}', '{transcript}')
+        const rawTemplate = readFileSync(baseFilePath, 'utf-8')
+        const template = applyTemplateReplacements(rawTemplate, sanitizedTarget, sanitizedSource)
         
         // Store fallback in cache with original cache key
-        promptCache.set(cacheKey, template)
+        promptCache.set(cacheKey, { content: template, timestamp: Date.now() })
         console.log(`[Prompts API] Successfully loaded and cached fallback: ${baseFileName}`)
         return template
       }
     }
     
-    throw new Error(`Prompt file not found: ${filePath}`)
+    // Final fallback to any_source_to_any/any_source_to_any.txt
+    const ultimateFallbackPath = join(baseDir, 'any_source_to_any', 'any_source_to_any.txt')
+    console.log(`[Prompts API] Trying ultimate fallback: ${ultimateFallbackPath}`)
+    
+    if (existsSync(ultimateFallbackPath)) {
+      const rawTemplate = readFileSync(ultimateFallbackPath, 'utf-8')
+      const template = applyTemplateReplacements(rawTemplate, sanitizedTarget, sanitizedSource)
+      
+      promptCache.set(cacheKey, { content: template, timestamp: Date.now() })
+      console.log(`[Prompts API] Successfully loaded ultimate fallback`)
+      return template
+    }
+    
+    throw new Error(`No prompt files found for ${sanitizedSource} -> ${sanitizedTarget}`)
   } catch (e) {
     console.error('[Prompts API] Error loading prompt:', e)
-    // Return empty prompt as last resort
-    return `Translate the following {sourceLanguage} text to {targetLanguage}:\n\n{transcript}`
+    // Return a properly formatted fallback prompt
+    return generateFallbackPrompt(sanitizedTarget, sanitizedSource)
   }
 }
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url)
-  const target = searchParams.get('target') || 'English'
-  const source = searchParams.get('source') || 'Auto'
-  const variant = (searchParams.get('variant') || 'normal') as TranslationVariant
-  
-  console.log(`[Prompts API] Request: source=${source}, target=${target}, variant=${variant}`)
-  
-  const prompt = loadPrompt(target, source, variant)
-  return NextResponse.json({ prompt })
+  try {
+    const { searchParams } = new URL(req.url)
+    const target = searchParams.get('target') || 'English'
+    const source = searchParams.get('source') || 'Auto'
+    const variantParam = searchParams.get('variant') || 'normal'
+    
+    // Validate variant parameter
+    const variant: TranslationVariant = isValidVariant(variantParam) ? variantParam : 'normal'
+    
+    if (variantParam && !isValidVariant(variantParam)) {
+      console.warn(`[Prompts API] Invalid variant '${variantParam}', defaulting to 'normal'`)
+    }
+    
+    console.log(`[Prompts API] Request: source=${source}, target=${target}, variant=${variant}`)
+    
+    const prompt = loadPrompt(target, source, variant)
+    
+    // Validate prompt is not empty
+    if (!prompt || prompt.trim().length === 0) {
+      console.error('[Prompts API] Empty prompt returned')
+      return NextResponse.json(
+        { error: 'Failed to load prompt', prompt: generateFallbackPrompt(target, source) },
+        { status: 500 }
+      )
+    }
+    
+    return NextResponse.json({ prompt })
+  } catch (error) {
+    console.error('[Prompts API] Unexpected error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error', prompt: generateFallbackPrompt('English', 'Auto') },
+      { status: 500 }
+    )
+  }
 }
 
 

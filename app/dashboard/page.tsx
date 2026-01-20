@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { isValidSubscriptionStatus, getSubscriptionStatusMessage, getCancelledSubscriptionTimeRemaining, getCancelledSubscriptionEndDate, isCancelledSubscriptionActive } from '@/lib/subscription'
 
 export default async function Dashboard() {
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const supabase = createClient(cookieStore)
 
   const {

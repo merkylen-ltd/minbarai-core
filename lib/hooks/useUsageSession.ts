@@ -62,6 +62,7 @@ export function useUsageSession(): UsageSessionReturn {
     if (event.type === 'session:created' || event.type === 'session:heartbeat' || event.type === 'usage:updated') {
       setSessionId(event.sessionId)
       setStatus(event.status)
+      // Only set isActive if status is literally 'active', not expired/capped
       setIsActive(event.status === 'active')
       setTimeRemainingSeconds(event.timeRemainingSeconds)
       setTotalUsageSeconds(event.totalUsageSeconds)
@@ -69,7 +70,15 @@ export function useUsageSession(): UsageSessionReturn {
       setSessionStartedAt(event.startedAt)
       setSessionExpiresAt(event.expiresAt)
       setSessionCapAt(event.capAt)
-      setError(null)
+      
+      // Clear error unless we hit a limit
+      const eventIsCapped = (event.status as string) === 'capped'
+      if (!eventIsCapped && event.timeRemainingSeconds > 0) {
+        setError(null)
+      } else if (eventIsCapped || event.timeRemainingSeconds <= 0) {
+        // User has reached their limit
+        setError('Session limit reached. No remaining time available.')
+      }
     } else if (event.type === 'session:closed') {
       setSessionId(null)
       setStatus('closed')
@@ -203,13 +212,25 @@ export function useUsageSession(): UsageSessionReturn {
         body: JSON.stringify({ active: true }),
       })
 
-      if (!response.ok) {
-        throw new Error(`Failed to start session: ${response.statusText}`)
-      }
-
-      const data: UsageSessionAPIResponse = await response.json()
+      const data = await response.json()
       
-      // Update state from response
+      // Handle limit reached response (403)
+      if (response.status === 403) {
+        console.warn('[useUsageSession] Session limit reached:', data.error)
+        setStatus('capped')
+        setIsActive(false)
+        setTimeRemainingSeconds(data.time_remaining_seconds || 0)
+        setTotalUsageSeconds(data.total_usage_seconds || 0)
+        setCurrentSessionSeconds(0)
+        setError(data.error || 'Session limit reached')
+        return
+      }
+      
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to start session: ${response.statusText}`)
+      }
+      
+      // Update state from successful response
       setSessionId(data.session_id || null)
       setStatus('active')
       setIsActive(true)
@@ -219,6 +240,7 @@ export function useUsageSession(): UsageSessionReturn {
       setSessionStartedAt(data.started_at || null)
       setSessionExpiresAt(data.expires_at || null)
       setSessionCapAt(data.cap_at || null)
+      setError(null)
 
       console.log('[useUsageSession] Session started:', data.session_id)
     } catch (err) {
@@ -310,17 +332,24 @@ export function useUsageSession(): UsageSessionReturn {
   // Computed values
   const timeRemainingMinutes = Math.floor(timeRemainingSeconds / 60)
   const totalUsageMinutes = Math.floor(totalUsageSeconds / 60)
-  const hasReachedLimit = timeRemainingSeconds <= 0
+  
+  // Check if user has reached their session limit
+  const isCapped = (status as string) === 'capped'
+  const hasReachedLimit = timeRemainingSeconds <= 0 || isCapped
   
   // Valid for starting a NEW recording if:
   // 1. Not currently active (prevents double-start)
-  // 2. Has time remaining
+  // 2. Has time remaining (not at 0 or capped)
   // 3. Status allows recording (idle, closed normally, or expired with time left)
-  const isValidForRecording = !isActive && !hasReachedLimit && ['idle', 'closed', 'expired'].includes(status)
+  const recordingAllowedStatuses: SessionStatus[] = ['idle', 'closed', 'expired']
+  const isValidForRecording = !isActive && 
+                               !hasReachedLimit && 
+                               timeRemainingSeconds > 0 &&
+                               recordingAllowedStatuses.includes(status)
   
   // Valid for translation (subscription is valid and has time) - regardless of recording state
   // This is used to show subscription validity in UI
-  const isValidForTranslation = !hasReachedLimit && !['capped'].includes(status)
+  const isValidForTranslation = !hasReachedLimit && timeRemainingSeconds > 0
   
   const isNearLimit = timeRemainingSeconds > 0 && timeRemainingSeconds <= 1800 // 30 minutes
 

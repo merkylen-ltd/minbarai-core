@@ -1,6 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import type { SSEEvent } from '@/types/usage-session'
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+// Type for usage session record
+interface UsageSessionRecord {
+  duration_seconds: number | null
+}
+
+// TTL for session expiry (3 minutes)
+const TTL_SECONDS = 3 * 60
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,7 +22,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: Request) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     const {
@@ -176,9 +185,12 @@ export async function GET(request: Request) {
 /**
  * Get current usage state for a user
  * Calculates time remaining, total usage, and session details
+ * Also detects if an active session should be considered expired/capped
  */
-async function getCurrentUsageState(supabase: any, userId: string): Promise<SSEEvent> {
+async function getCurrentUsageState(supabase: SupabaseClient, userId: string): Promise<SSEEvent> {
   try {
+    const now = Date.now()
+    
     // Fetch current active session
     const { data: activeSession, error: sessionError } = await supabase
       .from('usage_sessions')
@@ -191,7 +203,7 @@ async function getCurrentUsageState(supabase: any, userId: string): Promise<SSEE
       console.error('[Usage SSE] Error fetching active session:', sessionError)
     }
 
-    // Calculate total usage from completed sessions
+    // Calculate total usage from completed sessions only
     const { data: sessions, error: usageError } = await supabase
       .from('usage_sessions')
       .select('duration_seconds')
@@ -202,7 +214,7 @@ async function getCurrentUsageState(supabase: any, userId: string): Promise<SSEE
       console.error('[Usage SSE] Error fetching usage:', usageError)
     }
 
-    const totalUsageSeconds = sessions?.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0) || 0
+    const totalUsageSeconds = sessions?.reduce((sum: number, s: UsageSessionRecord) => sum + (s.duration_seconds || 0), 0) || 0
 
     // Get user's session limit
     const { data: userData, error: userError } = await supabase
@@ -217,33 +229,62 @@ async function getCurrentUsageState(supabase: any, userId: string): Promise<SSEE
 
     const limitSeconds = ((userData?.session_limit_minutes || 180) * 60)
 
-    // Calculate current session duration if active
+    // Calculate current session duration and check for expiry conditions
     let currentSessionSeconds = 0
+    let effectiveStatus: string = 'idle'
+    let effectiveSessionId: string | null = null
+    let startedAt: string | null = null
+    let expiresAt: string | null = null
+    let capAt: string | null = null
+    
     if (activeSession) {
-      const start = new Date(activeSession.started_at).getTime()
-      const now = Date.now()
-      currentSessionSeconds = Math.floor((now - start) / 1000)
+      const sessionStart = new Date(activeSession.started_at).getTime()
+      const sessionLastSeen = new Date(activeSession.last_seen_at).getTime()
+      const sessionMaxEnd = new Date(activeSession.max_end_at).getTime()
+      
+      // Check if session should be considered expired or capped
+      const ttlExpired = now > sessionLastSeen + TTL_SECONDS * 1000
+      const hitCap = now >= sessionMaxEnd
+      
+      if (hitCap) {
+        // Session hit the cap - use time from start to max_end
+        currentSessionSeconds = Math.floor((sessionMaxEnd - sessionStart) / 1000)
+        effectiveStatus = 'capped'
+        // Note: Session will be closed by next ping or cleanup job
+      } else if (ttlExpired) {
+        // Session TTL expired - use time from start to (last_seen + TTL)
+        const expiredAt = sessionLastSeen + TTL_SECONDS * 1000
+        currentSessionSeconds = Math.floor((expiredAt - sessionStart) / 1000)
+        effectiveStatus = 'expired'
+        // Note: Session will be closed by next ping or cleanup job
+      } else {
+        // Session is still active
+        currentSessionSeconds = Math.floor((now - sessionStart) / 1000)
+        effectiveStatus = 'active'
+        effectiveSessionId = activeSession.id
+        startedAt = activeSession.started_at
+        expiresAt = new Date(sessionLastSeen + TTL_SECONDS * 1000).toISOString()
+        capAt = activeSession.max_end_at
+      }
     }
 
-    // Calculate time remaining
-    const timeRemainingSeconds = Math.max(0, limitSeconds - (totalUsageSeconds + currentSessionSeconds))
+    // Calculate time remaining (respecting the limit)
+    const usedSeconds = totalUsageSeconds + currentSessionSeconds
+    const timeRemainingSeconds = Math.max(0, limitSeconds - usedSeconds)
 
-    // Determine event type and status
-    const status = activeSession?.status || 'idle'
-    const eventType = activeSession ? 'session:heartbeat' : 'usage:updated'
+    // Determine event type
+    const eventType = effectiveStatus === 'active' ? 'session:heartbeat' : 'usage:updated'
 
     return {
       type: eventType,
-      sessionId: activeSession?.id || null,
-      status: status as any,
-      startedAt: activeSession?.started_at || null,
-      expiresAt: activeSession
-        ? new Date(new Date(activeSession.last_seen_at).getTime() + 180000).toISOString()
-        : null,
-      capAt: activeSession?.max_end_at || null,
+      sessionId: effectiveSessionId,
+      status: effectiveStatus as 'idle' | 'active' | 'closed' | 'expired' | 'capped',
+      startedAt,
+      expiresAt,
+      capAt,
       timeRemainingSeconds,
-      totalUsageSeconds: totalUsageSeconds + currentSessionSeconds,
-      currentSessionSeconds,
+      totalUsageSeconds: usedSeconds, // Include current session in total
+      currentSessionSeconds: effectiveStatus === 'active' ? currentSessionSeconds : 0,
     } as SSEEvent
   } catch (error) {
     console.error('[Usage SSE] Error getting current state:', error)

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     // Check if user exists in our users table (use sanitized email)

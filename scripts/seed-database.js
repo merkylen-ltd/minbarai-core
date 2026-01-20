@@ -31,16 +31,51 @@ if (!supabaseUrl || !supabaseServiceKey) {
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Validate URL format
+if (!supabaseUrl.startsWith('http://') && !supabaseUrl.startsWith('https://')) {
+  console.error('❌ Invalid SUPABASE_URL format. Must start with http:// or https://');
+  console.error(`   Current value: ${supabaseUrl}`);
+  process.exit(1);
+}
+
+// Validate service role key format (should be a JWT)
+if (!supabaseServiceKey.startsWith('eyJ')) {
+  console.error('❌ Invalid SUPABASE_SERVICE_ROLE_KEY format. Should be a JWT token starting with "eyJ"');
+  console.error('   Please check your .env.local file');
+  process.exit(1);
+}
+
+// Create Supabase client with proper admin configuration
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 function generateSecurePassword() {
-  // Generate a secure random password
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  // Generate a secure random password that meets all requirements
+  const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const numbers = '0123456789';
+  const special = '@$!%*?&'; // Only allowed special characters
+  const allChars = lowercase + uppercase + numbers + special;
+  
   let password = '';
-  for (let i = 0; i < 12; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  
+  // Ensure at least one character from each category
+  password += lowercase[Math.floor(Math.random() * lowercase.length)];
+  password += uppercase[Math.floor(Math.random() * uppercase.length)];
+  password += numbers[Math.floor(Math.random() * numbers.length)];
+  password += special[Math.floor(Math.random() * special.length)];
+  
+  // Fill the rest randomly (to reach 12 characters total)
+  for (let i = 4; i < 12; i++) {
+    password += allChars[Math.floor(Math.random() * allChars.length)];
   }
-  return password;
+  
+  // Shuffle the password to randomize character positions
+  return password.split('').sort(() => Math.random() - 0.5).join('');
 }
 
 function validateEmail(email) {
@@ -48,8 +83,61 @@ function validateEmail(email) {
   return emailRegex.test(email);
 }
 
+async function testSupabaseConnection() {
+  try {
+    // Test connection by trying to list users (this requires admin privileges)
+    const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
+    
+    if (error) {
+      // Check if we got an HTML response
+      if (error.message && (error.message.includes('<!DOCTYPE') || error.message.includes('Unexpected token'))) {
+        console.error('❌ Configuration Error: Cannot connect to Supabase Admin API');
+        console.error('   Received HTML response instead of JSON');
+        console.error('');
+        console.error('   Possible causes:');
+        console.error('   1. NEXT_PUBLIC_SUPABASE_URL is incorrect');
+        console.error('   2. SUPABASE_SERVICE_ROLE_KEY is invalid or expired');
+        console.error('   3. Service role key does not have admin permissions');
+        console.error('');
+        console.error('   Please verify your .env.local file:');
+        console.error(`   NEXT_PUBLIC_SUPABASE_URL: ${supabaseUrl}`);
+        console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceKey ? 'Set (length: ' + supabaseServiceKey.length + ')' : 'Missing'}`);
+        console.error('');
+        console.error('   Get these values from:');
+        console.error('   https://supabase.com/dashboard → Your Project → Settings → API');
+        return false;
+      }
+      console.error('⚠️  Connection test failed:', error.message);
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    const errorMessage = error?.message || String(error);
+    if (errorMessage.includes('<!DOCTYPE') || errorMessage.includes('Unexpected token')) {
+      console.error('❌ Configuration Error: Cannot connect to Supabase Admin API');
+      console.error('   Received HTML response instead of JSON');
+      console.error('');
+      console.error('   Please verify your .env.local file:');
+      console.error(`   NEXT_PUBLIC_SUPABASE_URL: ${supabaseUrl}`);
+      console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceKey ? 'Set (length: ' + supabaseServiceKey.length + ')' : 'Missing'}`);
+      return false;
+    }
+    console.error('⚠️  Connection test error:', errorMessage);
+    return false;
+  }
+}
+
 async function createUser(email, password) {
   console.log(`🔐 Creating user: ${email}...`);
+  
+  // Test connection first
+  const connectionOk = await testSupabaseConnection();
+  if (!connectionOk) {
+    console.log(`   Email: ${email}`);
+    console.log(`   Password: ${password}`);
+    return null;
+  }
   
   try {
     // First, try to create the user in auth.users using Supabase Admin API
@@ -64,7 +152,24 @@ async function createUser(email, password) {
     });
 
     if (authError) {
-      if (authError.message.includes('already been registered')) {
+      // Check if error message contains HTML (indicates wrong endpoint or config issue)
+      if (authError.message && authError.message.includes('<!DOCTYPE')) {
+        console.error('❌ Configuration Error: Received HTML response instead of JSON');
+        console.error('   This usually means:');
+        console.error('   1. NEXT_PUBLIC_SUPABASE_URL is incorrect');
+        console.error('   2. SUPABASE_SERVICE_ROLE_KEY is invalid or expired');
+        console.error('   3. Supabase project may not be accessible');
+        console.error('');
+        console.error('   Please verify your .env.local file:');
+        console.error(`   NEXT_PUBLIC_SUPABASE_URL: ${supabaseUrl ? '✓ Set' : '✗ Missing'}`);
+        console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceKey ? '✓ Set (length: ' + supabaseServiceKey.length + ')' : '✗ Missing'}`);
+        console.error('');
+        console.error('   Get these values from:');
+        console.error('   https://supabase.com/dashboard → Your Project → Settings → API');
+        return null;
+      }
+      
+      if (authError.message && authError.message.includes('already been registered')) {
         console.log('⚠️  Auth user already exists, fetching user ID...');
         
         // Try to get the existing user by email
@@ -123,11 +228,29 @@ async function createUser(email, password) {
       }
     }
   } catch (error) {
-    console.log('⚠️  Could not create auth user (might need admin privileges)');
-    console.log('   Error:', error.message);
-    console.log('   Note: You may need to manually create the auth user in Supabase dashboard');
-    console.log(`   Email: ${email}`);
-    console.log(`   Password: ${password}`);
+    // Enhanced error handling for various error types
+    const errorMessage = error?.message || String(error);
+    
+    if (errorMessage.includes('<!DOCTYPE') || errorMessage.includes('Unexpected token')) {
+      console.error('❌ Configuration Error: Received HTML response instead of JSON');
+      console.error('   This usually means:');
+      console.error('   1. NEXT_PUBLIC_SUPABASE_URL is incorrect');
+      console.error('   2. SUPABASE_SERVICE_ROLE_KEY is invalid or expired');
+      console.error('   3. Supabase project may not be accessible');
+      console.error('');
+      console.error('   Please verify your .env.local file:');
+      console.error(`   NEXT_PUBLIC_SUPABASE_URL: ${supabaseUrl ? '✓ Set (' + supabaseUrl + ')' : '✗ Missing'}`);
+      console.error(`   SUPABASE_SERVICE_ROLE_KEY: ${supabaseServiceKey ? '✓ Set (length: ' + supabaseServiceKey.length + ')' : '✗ Missing'}`);
+      console.error('');
+      console.error('   Get these values from:');
+      console.error('   https://supabase.com/dashboard → Your Project → Settings → API');
+    } else {
+      console.log('⚠️  Could not create auth user (might need admin privileges)');
+      console.log('   Error:', errorMessage);
+      console.log('   Note: You may need to manually create the auth user in Supabase dashboard');
+      console.log(`   Email: ${email}`);
+      console.log(`   Password: ${password}`);
+    }
     return null;
   }
 }

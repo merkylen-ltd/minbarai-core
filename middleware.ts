@@ -3,6 +3,12 @@ import { createMiddlewareClient } from '@/lib/supabase/server'
 import { isValidSubscriptionStatus, isCancelledSubscriptionActive } from '@/lib/subscription'
 import { securityHeadersMiddleware } from '@/lib/auth/security-headers'
 
+// Type for user data we need from the database
+interface UserSubscriptionData {
+  subscription_status: string | null
+  subscription_period_end: string | null
+}
+
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next()
   
@@ -18,85 +24,67 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
+  // Early return for paths that don't need user data lookup
+  const needsUserCheck = pathname.startsWith('/dashboard') || (pathname.startsWith('/auth/') && session)
+  
+  // Single database query for routes that need subscription data
+  let userData: UserSubscriptionData | null = null
+  if (needsUserCheck && session) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('subscription_status, subscription_period_end')
+      .eq('id', session.user.id)
+      .single()
+    
+    if (error && error.code !== 'PGRST116') {
+      console.error('Middleware: Database error:', error.message)
+    }
+    userData = data
+  }
+
   // Protect dashboard routes
   if (pathname.startsWith('/dashboard')) {
-    console.log(`Middleware: Dashboard route accessed: ${pathname}`)
     if (!session) {
-      console.log('Middleware: No session, redirecting to signin')
       return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/auth/signin', request.url)))
     }
 
-    // Check subscription status
-    console.log(`Middleware: Checking user ${session.user.id} in database`)
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', session.user.id)
-      .single()
-
-    if (userError) {
-      console.log('Middleware: Database error:', userError)
-    }
-
-    console.log('Middleware: User data from database:', user)
-
-    if (!user) {
-      console.log('Middleware: User not found in database, redirecting to subscribe')
+    if (!userData) {
       return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
     }
 
-    console.log(`Middleware: User subscription status: ${user.subscription_status}`)
-
     // Check if cancelled subscription is still within paid period
-    if (user.subscription_status === 'canceled') {
-      const isStillActive = isCancelledSubscriptionActive(user.subscription_status, user.subscription_period_end)
-      console.log(`Middleware: Cancelled subscription check - period_end: ${user.subscription_period_end}, still_active: ${isStillActive}`)
+    if (userData.subscription_status === 'canceled') {
+      const isStillActive = isCancelledSubscriptionActive(userData.subscription_status, userData.subscription_period_end)
       if (!isStillActive) {
-        console.log('Middleware: Cancelled subscription period ended, redirecting to subscribe')
         return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
-      } else {
-        console.log('Middleware: Cancelled subscription still within paid period, allowing access')
       }
     }
 
     // Allow access for incomplete status (payment processing)
-    if (user.subscription_status === 'incomplete') {
-      console.log('Middleware: Payment processing, allowing access')
-      // Allow access during payment processing
+    if (userData.subscription_status === 'incomplete') {
       return securedResponse
     }
 
-    if (!isValidSubscriptionStatus(user.subscription_status)) {
-      console.log(`Middleware: Invalid subscription status: ${user.subscription_status}, redirecting to subscribe`)
+    if (!isValidSubscriptionStatus(userData.subscription_status)) {
       return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
     }
-
-    console.log('Middleware: Access granted to dashboard')
   }
 
   // Redirect authenticated users away from auth pages (but allow callback redirects with messages)
   if (pathname.startsWith('/auth/') && session) {
     // Allow auth pages with URL parameters (messages from callback)
     if (request.nextUrl.searchParams.has('message')) {
-      console.log('Middleware: Allowing auth page with message parameter')
       return securedResponse
     }
 
-    // Check if user has valid subscription
-    const { data: user } = await supabase
-      .from('users')
-      .select('subscription_status, subscription_period_end')
-      .eq('id', session.user.id)
-      .single()
-
-    if (user) {
+    if (userData) {
       // Check if cancelled subscription is still within paid period
-      if (user.subscription_status === 'canceled' && !isCancelledSubscriptionActive(user.subscription_status, user.subscription_period_end)) {
+      if (userData.subscription_status === 'canceled' && !isCancelledSubscriptionActive(userData.subscription_status, userData.subscription_period_end)) {
         return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
       }
       
       // Allow access for incomplete status (payment processing) or valid subscription
-      if (user.subscription_status === 'incomplete' || isValidSubscriptionStatus(user.subscription_status)) {
+      if (userData.subscription_status === 'incomplete' || isValidSubscriptionStatus(userData.subscription_status)) {
         return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/dashboard', request.url)))
       }
     }

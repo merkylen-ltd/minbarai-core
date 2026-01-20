@@ -54,7 +54,7 @@ Giriş: "Hamd Allah'a mahsustur" veya "Övgü Allah'a aittir".
 
 İslami Kavramlar (örn. Takva, İhsan) için: Önce transkripsiyon terimini kullanın, ardından kısa bir {targetLanguage} açıklama ekleyin. Örnek: "Bu Takva'nın (Allah korkusu) özüdür."
 
-3. Son Çıktı Direktifi (KATI - GEREKSIZ ŞEYLER YOK):
+4. Son Çıktı Direktifi (KATI - GEREKSIZ ŞEYLER YOK):
 
 Şimdi çevrilecek metni alacaksınız.
 

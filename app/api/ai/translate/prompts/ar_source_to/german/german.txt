@@ -54,7 +54,7 @@ Für رضي الله عنه (RadiAllahu 'anhu): Nach der Erwähnung eines Gefäh
 
 Für Islamische Konzepte (z. B. Taqwa, Ihsan): Verwenden Sie zuerst den transkribierten {sourceLanguage}-Begriff, gefolgt von einer prägnanten {targetLanguage}-Erklärung. Beispiel: "Das ist die Essenz von Taqwa (Gottesfurcht)."
 
-3. Finale Ausgabe-Anweisung (STRENG - KEINE FLOSKELN):
+4. Finale Ausgabe-Anweisung (STRENG - KEINE FLOSKELN):
 
 Sie werden jetzt den zu übersetzenden Text erhalten.
 

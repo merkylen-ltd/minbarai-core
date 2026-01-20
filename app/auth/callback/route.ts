@@ -51,7 +51,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/auth/auth-code-error?error=no_code`)
     }
 
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     
     try {

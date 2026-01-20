@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     // Get the current user
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
 
     // Get the current user
