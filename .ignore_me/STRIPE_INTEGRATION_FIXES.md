@@ -592,7 +592,7 @@ The integration follows Stripe's best practices and is secure, reliable, and rea
 
 ---
 
-**Last Updated:** October 3, 2025
+**Last Updated:** October 3, 2026
 **Integration Version:** 2.0
 **Stripe API Version:** 2023-10-16
 

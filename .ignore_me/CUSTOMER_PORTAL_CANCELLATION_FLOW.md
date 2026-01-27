@@ -49,7 +49,7 @@ Dashboard - User data: {
   subscription_status: 'canceled',  // ← Updated to 'canceled'
   subscription_id: 'sub_1SAdpw484U6B4yaGX80HHPIe',
   customer_id: 'cus_T6rKVxOAOQuJGe',
-  updated_at: '2025-09-23T21:45:00.000000+00:00'  // ← Recent timestamp
+  updated_at: '2026-09-23T21:45:00.000000+00:00'  // ← Recent timestamp
 }
 ```
 
@@ -80,14 +80,14 @@ Dashboard - User data: {
 ```sql
 SELECT * FROM users WHERE id = 'b69f5c7a-f8ec-4424-b7e4-64ba8d9044bc';
 -- subscription_status: 'active'
--- updated_at: '2025-09-23T21:33:29.696262+00:00'
+-- updated_at: '2026-09-23T21:33:29.696262+00:00'
 ```
 
 ### **After Cancellation:**
 ```sql
 SELECT * FROM users WHERE id = 'b69f5c7a-f8ec-4424-b7e4-64ba8d9044bc';
 -- subscription_status: 'canceled'  ← Updated automatically
--- updated_at: '2025-09-23T21:45:00.000000+00:00'  ← Recent timestamp
+-- updated_at: '2026-09-23T21:45:00.000000+00:00'  ← Recent timestamp
 ```
 
 ## 🧪 **Test the Complete Flow:**
