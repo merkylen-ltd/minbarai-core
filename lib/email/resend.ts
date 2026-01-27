@@ -31,9 +31,9 @@ export async function sendAdminEmail(
   html: string
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
-    if (!process.env.RESEND_API_KEY) {
+    if (!resend) {
       console.error('[Resend] API key not configured')
-      return { success: false, error: 'Email service not configured' }
+      return { success: false, error: 'Email service not configured. Please set RESEND_API_KEY.' }
     }
 
     // Use the configured FROM email, fallback to test domain if not set
