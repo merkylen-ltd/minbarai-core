@@ -60,6 +60,7 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const checkAuthStatus = async () => {
@@ -69,9 +70,14 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
       if (user) {
         setIsAuthenticated(true);
         setCurrentUserEmail(user.email || '');
+        
+        // Check if user is admin
+        const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS?.split(',') || [];
+        setIsAdmin(adminEmails.includes(user.email || ''));
       } else {
         setIsAuthenticated(false);
         setCurrentUserEmail('');
+        setIsAdmin(false);
       }
     };
 
@@ -172,6 +178,20 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                 </Link>
               )}
               
+              {/* Admin Panel Link - Only show for admin users */}
+              {isAdmin && variant !== 'landing' && (
+                <Link
+                  href="/admin"
+                  className="flex items-center space-x-2 text-neutral-400 hover:text-accent-400 transition-colors text-sm"
+                  title="Admin Panel"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  <span>Admin</span>
+                </Link>
+              )}
+              
               <SignOutButton />
             </div>
           ) : (
@@ -254,6 +274,20 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                     >
                       <CreditCard className="h-4 w-4 inline mr-2" />
                       Billing
+                    </Link>
+                  )}
+                  
+                  {/* Admin Panel Link - Mobile */}
+                  {isAdmin && variant !== 'landing' && (
+                    <Link
+                      href="/admin"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="text-neutral-50 hover:text-accent-400 hover:bg-primary-600/50 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 min-h-[44px] flex items-center"
+                    >
+                      <svg className="h-4 w-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                      Admin
                     </Link>
                   )}
                   

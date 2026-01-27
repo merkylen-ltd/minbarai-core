@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createMiddlewareClient } from '@/lib/supabase/server'
 import { isValidSubscriptionStatus, isCancelledSubscriptionActive } from '@/lib/subscription'
 import { securityHeadersMiddleware } from '@/lib/auth/security-headers'
+import { isAdminUser } from '@/lib/auth/admin'
 
 // Type for user data we need from the database
 interface UserSubscriptionData {
@@ -23,6 +24,32 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getSession()
 
   const { pathname } = request.nextUrl
+
+  // Protect admin routes - check authentication and admin privileges
+  if (pathname.startsWith('/admin')) {
+    // Allow public health check endpoint for monitoring
+    if (pathname === '/admin/api/health/status') {
+      return securedResponse
+    }
+
+    // Require authentication
+    if (!session) {
+      const loginUrl = new URL('/auth/signin', request.url)
+      loginUrl.searchParams.set('redirect', pathname)
+      loginUrl.searchParams.set('message', 'Please sign in to access the admin panel')
+      return securityHeadersMiddleware(request, NextResponse.redirect(loginUrl))
+    }
+
+    // Require admin privileges
+    if (!isAdminUser(session.user.email)) {
+      const dashboardUrl = new URL('/dashboard', request.url)
+      dashboardUrl.searchParams.set('error', 'Access denied: Admin privileges required')
+      return securityHeadersMiddleware(request, NextResponse.redirect(dashboardUrl))
+    }
+
+    // Admin user authenticated - allow access
+    return securedResponse
+  }
 
   // Early return for paths that don't need user data lookup
   const needsUserCheck = pathname.startsWith('/dashboard') || (pathname.startsWith('/auth/') && session)
