@@ -1,7 +1,7 @@
 # Privacy Policy
 
-**Effective Date:** January 2025  
-**Last Updated:** January 2025
+**Effective Date:** January 2026  
+**Last Updated:** January 2026
 
 ## 1. Introduction
 
@@ -212,4 +212,4 @@ EU users have the right to lodge a complaint with their local supervisory author
 
 ---
 
-**This Privacy Policy is effective as of January 2025 and applies to all users of MinbarAI services.**
+**This Privacy Policy is effective as of January 2026 and applies to all users of MinbarAI services.**

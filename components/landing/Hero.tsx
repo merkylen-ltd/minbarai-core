@@ -43,7 +43,7 @@ const Hero: React.FC = () => {
               onComplete={handleSubtitleComplete}
             />
             <span className="block text-accent-300 font-light mt-3 text-sm animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-              Currently in development • Limited features during early access
+              Limited features during early access
             </span>
           </p>
         )}

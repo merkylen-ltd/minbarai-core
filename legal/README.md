@@ -34,5 +34,5 @@ The API routes will look for files in this `legal/` folder first, with fallback 
 
 ## Last Updated
 
-- Terms and Conditions: January 2025
-- Privacy Policy: January 2025
+- Terms and Conditions: January 2026
+- Privacy Policy: January 2026

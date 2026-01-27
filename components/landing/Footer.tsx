@@ -83,7 +83,7 @@ const Footer: React.FC = () => {
         <div className="border-t border-primary-700/30 mt-8 pt-8 flex flex-col md:flex-row items-center justify-between">
           <div className="flex flex-col md:flex-row items-center space-y-2 md:space-y-0 md:space-x-4">
             <p className="text-neutral-400 text-sm">
-              &copy; 2025 MinbarAI. All rights reserved.
+              &copy; 2026 MinbarAI. All rights reserved.
             </p>
             <div className="flex items-center space-x-2 px-2 py-1 rounded-full bg-accent-500/10 border border-accent-400/20">
               <div className="relative">

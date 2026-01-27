@@ -82,8 +82,8 @@ const PrivacyPolicyPage: React.FC = () => {
               How we collect, use, and protect your information
             </p>
             <div className="mt-4 text-sm text-neutral-400">
-              <p><strong>Effective Date:</strong> January 2025</p>
-              <p><strong>Last Updated:</strong> January 2025</p>
+              <p><strong>Effective Date:</strong> January 2026</p>
+              <p><strong>Last Updated:</strong> January 2026</p>
             </div>
           </div>
 
@@ -435,7 +435,7 @@ const PrivacyPolicyPage: React.FC = () => {
 
               <div className="border-t border-primary-600/20 pt-8 mt-12">
                 <p className="text-neutral-400 text-center">
-                  <strong>This Privacy Policy is effective as of January 2025 and applies to all users of MinbarAI services.</strong>
+                  <strong>This Privacy Policy is effective as of January 2026 and applies to all users of MinbarAI services.</strong>
                 </p>
               </div>
             </div>

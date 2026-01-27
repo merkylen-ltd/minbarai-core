@@ -82,8 +82,8 @@ const TermsAndConditionsPage: React.FC = () => {
               Legal terms governing your use of MinbarAI services
             </p>
             <div className="mt-4 text-sm text-neutral-400">
-              <p><strong>Effective Date:</strong> January 2025</p>
-              <p><strong>Last Updated:</strong> January 2025</p>
+              <p><strong>Effective Date:</strong> January 2026</p>
+              <p><strong>Last Updated:</strong> January 2026</p>
             </div>
           </div>
 
@@ -549,7 +549,7 @@ const TermsAndConditionsPage: React.FC = () => {
 
               <div className="border-t border-primary-600/20 pt-8 mt-12">
                 <p className="text-neutral-400 text-center mb-4">
-                  <strong>These Terms and Conditions are effective as of January 2025 and apply to all users of MinbarAI services.</strong>
+                  <strong>These Terms and Conditions are effective as of January 2026 and apply to all users of MinbarAI services.</strong>
                 </p>
                 <p className="text-neutral-400 text-center">
                   <strong>By using MinbarAI, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions.</strong>

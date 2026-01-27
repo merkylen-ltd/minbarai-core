@@ -1,7 +1,7 @@
 # Terms and Conditions
 
-**Effective Date:** January 2025  
-**Last Updated:** January 2025
+**Effective Date:** January 2026  
+**Last Updated:** January 2026
 
 ## 1. Acceptance of Terms
 
@@ -265,6 +265,6 @@ Our failure to enforce any provision of these terms does not constitute a waiver
 
 ---
 
-**These Terms and Conditions are effective as of January 2025 and apply to all users of MinbarAI services.**
+**These Terms and Conditions are effective as of January 2026 and apply to all users of MinbarAI services.**
 
 **By using MinbarAI, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions.**
