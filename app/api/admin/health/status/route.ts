@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         status: 'up' | 'down' | 'unknown'
         responseTime?: number
         error?: string
+        message?: string
       }
     } = {}
 
