@@ -8,8 +8,20 @@ interface UsageSessionRecord {
   duration_seconds: number | null
 }
 
-// TTL for session expiry (3 minutes)
-const TTL_SECONDS = 3 * 60
+// Type for tracking previous session state to detect closures
+interface SessionStateCache {
+  sessionId: string | null
+  status: string
+  lastChecked: number
+}
+
+// TTL for session expiry
+// How long a session can go without activity before being marked as expired
+// Set to 30 minutes to accommodate long recording sessions without requiring heartbeat pings
+const TTL_SECONDS = 30 * 60 // 30 minutes
+
+// Cache to track previous session state per user for detecting closures
+const sessionStateCache = new Map<string, SessionStateCache>()
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,8 +120,9 @@ export async function GET(request: Request) {
             sendHeartbeat()
           }, 30000)
 
-          // Send periodic state updates every 10 seconds when session is active
+          // Send periodic state updates every 10 seconds
           // This ensures time remaining is accurate even without database changes
+          // and that expired/capped sessions are detected and sent to clients
           const stateUpdateInterval = setInterval(async () => {
             if (aborted) {
               clearInterval(stateUpdateInterval)
@@ -118,10 +131,9 @@ export async function GET(request: Request) {
             
             try {
               const state = await getCurrentUsageState(supabase, user.id)
-              // Only send updates if session is active
-              if (state.type !== 'connection:heartbeat' && 
-                  'sessionId' in state && state.sessionId && 
-                  'status' in state && state.status === 'active') {
+              // Send all state updates except connection heartbeats
+              // This includes active, expired, capped, and idle states
+              if (state.type !== 'connection:heartbeat') {
                 sendEvent(state)
               }
             } catch (error) {
@@ -186,10 +198,14 @@ export async function GET(request: Request) {
  * Get current usage state for a user
  * Calculates time remaining, total usage, and session details
  * Also detects if an active session should be considered expired/capped
+ * Detects session closures and returns appropriate event types
  */
 async function getCurrentUsageState(supabase: SupabaseClient, userId: string): Promise<SSEEvent> {
   try {
     const now = Date.now()
+    
+    // Get previous state from cache to detect transitions
+    const previousState = sessionStateCache.get(userId)
     
     // Fetch current active session
     const { data: activeSession, error: sessionError } = await supabase
@@ -203,7 +219,7 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
       console.error('[Usage SSE] Error fetching active session:', sessionError)
     }
 
-    // Calculate total usage from completed sessions only
+    // Calculate total usage from completed sessions only (not including current active session)
     const { data: sessions, error: usageError } = await supabase
       .from('usage_sessions')
       .select('duration_seconds')
@@ -214,6 +230,7 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
       console.error('[Usage SSE] Error fetching usage:', usageError)
     }
 
+    // totalUsageSeconds = sum of all CLOSED sessions only
     const totalUsageSeconds = sessions?.reduce((sum: number, s: UsageSessionRecord) => sum + (s.duration_seconds || 0), 0) || 0
 
     // Get user's session limit
@@ -236,6 +253,8 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
     let startedAt: string | null = null
     let expiresAt: string | null = null
     let capAt: string | null = null
+    let sessionEndedAt: string | null = null
+    let closeReason: 'user' | 'expired' | 'capped' | null = null
     
     if (activeSession) {
       const sessionStart = new Date(activeSession.started_at).getTime()
@@ -250,12 +269,18 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
         // Session hit the cap - use time from start to max_end
         currentSessionSeconds = Math.floor((sessionMaxEnd - sessionStart) / 1000)
         effectiveStatus = 'capped'
+        effectiveSessionId = activeSession.id
+        sessionEndedAt = new Date(sessionMaxEnd).toISOString()
+        closeReason = 'capped'
         // Note: Session will be closed by next ping or cleanup job
       } else if (ttlExpired) {
         // Session TTL expired - use time from start to (last_seen + TTL)
         const expiredAt = sessionLastSeen + TTL_SECONDS * 1000
         currentSessionSeconds = Math.floor((expiredAt - sessionStart) / 1000)
         effectiveStatus = 'expired'
+        effectiveSessionId = activeSession.id
+        sessionEndedAt = new Date(expiredAt).toISOString()
+        closeReason = 'expired'
         // Note: Session will be closed by next ping or cleanup job
       } else {
         // Session is still active
@@ -268,24 +293,95 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
       }
     }
 
+    // Detect session closure: previous state had an active session, current state doesn't
+    // IMPORTANT: Only detect closure once by checking if we haven't already detected it
+    const hadActiveSession = previousState && previousState.sessionId && 
+                             (previousState.status === 'active' || previousState.status === 'capped' || previousState.status === 'expired')
+    const currentHasNoSession = effectiveStatus === 'idle' || effectiveSessionId === null
+    const sessionChanged = effectiveSessionId !== previousState?.sessionId
+    
+    // Only consider it "just closed" if:
+    // 1. Previous state had an active/expired/capped session
+    // 2. Current state has no session OR different session
+    // 3. Previous state wasn't already idle (prevents duplicate detection)
+    const sessionJustClosed = hadActiveSession && 
+                               currentHasNoSession && 
+                               previousState.status !== 'idle'
+    
+    // Update cache with current state BEFORE returning
+    // This prevents duplicate closure detection on the next call
+    sessionStateCache.set(userId, {
+      sessionId: effectiveSessionId,
+      status: effectiveStatus,
+      lastChecked: now
+    })
+
     // Calculate time remaining (respecting the limit)
+    // IMPORTANT: For expired/capped sessions, we include currentSessionSeconds in the total
+    // because the session has effectively ended, even if not yet persisted to DB
     const usedSeconds = totalUsageSeconds + currentSessionSeconds
     const timeRemainingSeconds = Math.max(0, limitSeconds - usedSeconds)
 
-    // Determine event type
-    const eventType = effectiveStatus === 'active' ? 'session:heartbeat' : 'usage:updated'
-
-    return {
-      type: eventType,
-      sessionId: effectiveSessionId,
-      status: effectiveStatus as 'idle' | 'active' | 'closed' | 'expired' | 'capped',
-      startedAt,
-      expiresAt,
-      capAt,
-      timeRemainingSeconds,
-      totalUsageSeconds: usedSeconds, // Include current session in total
-      currentSessionSeconds: effectiveStatus === 'active' ? currentSessionSeconds : 0,
-    } as SSEEvent
+    // Determine event type and return appropriate event
+    if (sessionJustClosed && previousState) {
+      // Session was closed - return session:closed event
+      // Determine close reason from previous state or current detection
+      let finalCloseReason: 'user' | 'expired' | 'capped' = 'user'
+      if (previousState.status === 'capped') {
+        finalCloseReason = 'capped'
+      } else if (previousState.status === 'expired') {
+        finalCloseReason = 'expired'
+      }
+      
+      return {
+        type: 'session:closed',
+        sessionId: previousState.sessionId!,
+        endedAt: sessionEndedAt || new Date(now).toISOString(),
+        totalUsageSeconds: usedSeconds,
+        timeRemainingSeconds,
+        reason: finalCloseReason,
+      } as SSEEvent
+    } else if (effectiveStatus === 'active') {
+      // Active session - return heartbeat
+      return {
+        type: 'session:heartbeat',
+        sessionId: effectiveSessionId!,
+        status: 'active',
+        startedAt: startedAt!,
+        expiresAt: expiresAt!,
+        capAt: capAt!,
+        timeRemainingSeconds,
+        totalUsageSeconds: usedSeconds, // includes current active session
+        currentSessionSeconds,
+      } as SSEEvent
+    } else if (effectiveStatus === 'expired' || effectiveStatus === 'capped') {
+      // Session has expired/capped but not yet closed in DB
+      // Return usage:updated with the expired/capped status
+      return {
+        type: 'usage:updated',
+        sessionId: effectiveSessionId,
+        status: effectiveStatus as 'expired' | 'capped',
+        startedAt: startedAt,
+        expiresAt: sessionEndedAt,
+        capAt: capAt,
+        timeRemainingSeconds,
+        totalUsageSeconds: usedSeconds, // includes the expired/capped session time
+        currentSessionSeconds, // non-zero to show how much time was used before expiry/cap
+      } as SSEEvent
+    } else {
+      // Idle state - no active session
+      return {
+        type: 'usage:updated',
+        sessionId: null,
+        status: 'idle',
+        startedAt: null,
+        expiresAt: null,
+        capAt: null,
+        timeRemainingSeconds,
+        totalUsageSeconds, // only closed sessions, no active session
+        currentSessionSeconds: 0,
+      } as SSEEvent
+    }
   } catch (error) {
     console.error('[Usage SSE] Error getting current state:', error)
     

@@ -46,16 +46,28 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     onError: liveCaptioning.showAlert,
     scrollToBottom: typingAnimation.scrollToBottom,
     startUsageSession: liveCaptioning.startUsageSession,
-    endUsageSession: liveCaptioning.stopUsageSession
+    endUsageSession: liveCaptioning.stopUsageSession,
+    onClearTranslationQueue: typingAnimation.clearPendingQueue
   })
 
   // Monitor usage status and auto-stop if session becomes inactive during recording
+  // Use ref to track if we've already auto-stopped to prevent duplicate stops
+  const hasAutoStoppedRef = React.useRef(false)
+  
   useEffect(() => {
     // Don't process if not recording
-    if (!speechRecognition.isRecording) return
+    if (!speechRecognition.isRecording) {
+      // Reset flag when not recording so we can auto-stop next session
+      hasAutoStoppedRef.current = false
+      return
+    }
     
     // Stop recording if session expires, gets capped, or is closed unexpectedly
-    if (['expired', 'capped', 'closed'].includes(liveCaptioning.usageStatus || '')) {
+    const shouldAutoStop = ['expired', 'capped', 'closed'].includes(liveCaptioning.usageStatus || '')
+    
+    if (shouldAutoStop && !hasAutoStoppedRef.current) {
+      hasAutoStoppedRef.current = true // Set flag before stopping to prevent duplicates
+      
       speechRecognition.stopRecording()
       
       let message = 'Session has been stopped.'
@@ -254,7 +266,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
       {/* Alert Dialog for Notifications */}
       <AlertDialog
         open={liveCaptioning.alertDialog.open}
-        onOpenChange={liveCaptioning.closeAlert}
+        onOpenChange={(open) => { if (!open) liveCaptioning.closeAlert() }}
         title={liveCaptioning.alertDialog.title}
         description={liveCaptioning.alertDialog.description}
         buttonText={liveCaptioning.alertDialog.buttonText}

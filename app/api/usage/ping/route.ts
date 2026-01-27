@@ -7,7 +7,9 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Constants for the ping-based usage tracking system
-const TTL_SECONDS = 3 * 60 // 3 minutes TTL
+// TTL: How long a session can go without activity before being marked as expired
+// Set to 30 minutes to accommodate long recording sessions without requiring heartbeat pings
+const TTL_SECONDS = 30 * 60 // 30 minutes TTL
 
 interface PingRequest {
   active: boolean
@@ -39,6 +41,9 @@ interface UsageSessionRecord {
  * Helper function to calculate total usage seconds for a user
  * ONLY counts CLOSED sessions (those with duration_seconds set)
  * Active sessions are calculated separately using real-time elapsed time
+ * 
+ * IMPORTANT: This returns only closed sessions. When returning to client,
+ * we add currentSessionSeconds to get the total INCLUDING active session.
  */
 async function getTotalUsageSeconds(supabase: SupabaseClient, userId: string): Promise<number> {
   try {
@@ -268,13 +273,14 @@ export async function POST(request: Request) {
         console.log(`[Usage Tracking] [${requestId}] Stop ping but no active session found`)
       }
 
-      // Return totals for user
+      // Return totals for user (no active session)
       const totalSeconds = await getTotalUsageSeconds(supabase, user.id)
       const timeRemaining = calculateTimeRemaining(userSessionLimitMinutes, totalSeconds)
 
       return NextResponse.json({
         status: 'closed',
         time_remaining_seconds: timeRemaining,
+        // IMPORTANT: total_usage_seconds is only closed sessions (no active session)
         total_usage_seconds: totalSeconds,
         current_session_seconds: 0,
         totals: { total_seconds: totalSeconds }
@@ -351,6 +357,8 @@ export async function POST(request: Request) {
               expires_at: ttlExpiry.toISOString(),
               cap_at: existingSession.max_end_at,
               time_remaining_seconds: timeRemaining,
+              // IMPORTANT: total_usage_seconds includes current active session
+              // totalSeconds = closed sessions only, currentSessionSeconds = active session
               total_usage_seconds: totalSeconds + currentSessionSeconds,
               current_session_seconds: currentSessionSeconds,
               totals: { total_seconds: totalSeconds }
@@ -376,6 +384,8 @@ export async function POST(request: Request) {
           expires_at: ttlExpiry.toISOString(),
           cap_at: newSession.max_end_at,
           time_remaining_seconds: timeRemaining,
+          // IMPORTANT: total_usage_seconds includes current active session
+          // totalSeconds = closed sessions only, currentSessionSeconds = 0 (just created)
           total_usage_seconds: totalSeconds + currentSessionSeconds,
           current_session_seconds: currentSessionSeconds,
           totals: { total_seconds: totalSeconds }
@@ -413,6 +423,8 @@ export async function POST(request: Request) {
           expires_at: ttlExpiry.toISOString(),
           cap_at: currentSession.max_end_at,
           time_remaining_seconds: timeRemaining,
+          // IMPORTANT: total_usage_seconds includes current active session
+          // totalSeconds = closed sessions only, currentSessionSeconds = elapsed time
           total_usage_seconds: totalSeconds + currentSessionSeconds,
           current_session_seconds: currentSessionSeconds,
           totals: { total_seconds: totalSeconds }

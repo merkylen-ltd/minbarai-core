@@ -48,8 +48,6 @@ export function useUsageSession(): UsageSessionReturn {
    * Process SSE events and update state
    */
   const processSSEEvent = useCallback((event: SSEEvent) => {
-    console.log('[useUsageSession] Received event:', event.type, event)
-    
     // Set loading to false once we receive any event
     setIsLoading(false)
     
@@ -105,18 +103,14 @@ export function useUsageSession(): UsageSessionReturn {
   const connectSSE = useCallback(() => {
     // Don't connect if already connected
     if (eventSourceRef.current) {
-      console.log('[useUsageSession] SSE already connected')
       return
     }
-
-    console.log('[useUsageSession] Connecting to SSE stream...')
 
     try {
       const eventSource = new EventSource('/api/usage/stream')
       eventSourceRef.current = eventSource
 
       eventSource.onopen = () => {
-        console.log('[useUsageSession] SSE connection opened')
         setIsConnected(true)
         setError(null)
         reconnectAttemptsRef.current = 0
@@ -173,8 +167,6 @@ export function useUsageSession(): UsageSessionReturn {
    * Disconnect from SSE stream
    */
   const disconnectSSE = useCallback(() => {
-    console.log('[useUsageSession] Disconnecting from SSE stream')
-    
     // Clear reconnect timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
@@ -192,10 +184,13 @@ export function useUsageSession(): UsageSessionReturn {
 
   /**
    * Start a usage session (begin recording/tracking)
+   * 
+   * NOTE: This function only triggers the session creation on the server.
+   * State updates come from SSE events, not from the ping response.
+   * This eliminates race conditions between ping responses and SSE events.
    */
   const startSession = useCallback(async () => {
     if (isStartingRef.current || isActive) {
-      console.log('[useUsageSession] Session already starting or active')
       return
     }
 
@@ -204,8 +199,6 @@ export function useUsageSession(): UsageSessionReturn {
     setError(null)
 
     try {
-      console.log('[useUsageSession] Starting session...')
-      
       const response = await fetch('/api/usage/ping', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -217,12 +210,9 @@ export function useUsageSession(): UsageSessionReturn {
       // Handle limit reached response (403)
       if (response.status === 403) {
         console.warn('[useUsageSession] Session limit reached:', data.error)
-        setStatus('capped')
-        setIsActive(false)
-        setTimeRemainingSeconds(data.time_remaining_seconds || 0)
-        setTotalUsageSeconds(data.total_usage_seconds || 0)
-        setCurrentSessionSeconds(0)
         setError(data.error || 'Session limit reached')
+        setStatus('capped')
+        // SSE will send the authoritative state update shortly
         return
       }
       
@@ -230,19 +220,10 @@ export function useUsageSession(): UsageSessionReturn {
         throw new Error(data.error || `Failed to start session: ${response.statusText}`)
       }
       
-      // Update state from successful response
-      setSessionId(data.session_id || null)
-      setStatus('active')
-      setIsActive(true)
-      setTimeRemainingSeconds(data.time_remaining_seconds)
-      setTotalUsageSeconds(data.total_usage_seconds)
-      setCurrentSessionSeconds(data.current_session_seconds || 0)
-      setSessionStartedAt(data.started_at || null)
-      setSessionExpiresAt(data.expires_at || null)
-      setSessionCapAt(data.cap_at || null)
-      setError(null)
-
-      console.log('[useUsageSession] Session started:', data.session_id)
+      // SUCCESS: Session created on server
+      // Don't update state here - trust SSE to send the authoritative update
+      // The SSE stream will receive a database change event and update our state
+      console.log('[useUsageSession] Session start requested, waiting for SSE update')
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error('[useUsageSession] Error starting session:', err)
@@ -256,10 +237,20 @@ export function useUsageSession(): UsageSessionReturn {
 
   /**
    * Stop a usage session (stop recording/tracking)
+   * 
+   * NOTE: This function only triggers the session closure on the server.
+   * State updates come from SSE events, not from the ping response.
+   * This eliminates race conditions between ping responses and SSE events.
    */
   const stopSession = useCallback(async () => {
-    if (isStoppingRef.current || !isActive) {
-      console.log('[useUsageSession] Session already stopping or not active')
+    // Guard against duplicate calls - check both flags and state
+    if (isStoppingRef.current) {
+      console.log('[useUsageSession] Stop already in progress, ignoring duplicate call')
+      return
+    }
+    
+    if (!isActive) {
+      console.log('[useUsageSession] Session not active, ignoring stop call')
       return
     }
 
@@ -268,8 +259,6 @@ export function useUsageSession(): UsageSessionReturn {
     setError(null)
 
     try {
-      console.log('[useUsageSession] Stopping session...')
-      
       const response = await fetch('/api/usage/ping', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -280,24 +269,16 @@ export function useUsageSession(): UsageSessionReturn {
         throw new Error(`Failed to stop session: ${response.statusText}`)
       }
 
-      const data: UsageSessionAPIResponse = await response.json()
-      
-      // Update state from response - set to idle (ready for new session)
-      setSessionId(null)
-      setStatus('idle') // Back to idle state, ready for new recording
-      setIsActive(false)
-      setTimeRemainingSeconds(data.time_remaining_seconds)
-      setTotalUsageSeconds(data.total_usage_seconds)
-      setCurrentSessionSeconds(0)
-      setSessionStartedAt(null)
-      setSessionExpiresAt(null)
-      setSessionCapAt(null)
-
-      console.log('[useUsageSession] Session stopped, back to idle')
+      // SUCCESS: Session closed on server
+      // Don't update state here - trust SSE to send the authoritative update
+      // The SSE stream will receive a database change event and send session:closed
+      console.log('[useUsageSession] Session stop requested, waiting for SSE update')
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error('[useUsageSession] Error stopping session:', err)
       setError(errorMessage)
+      // Revert status on error
+      setStatus(isActive ? 'active' : 'idle')
     } finally {
       isStoppingRef.current = false
     }
