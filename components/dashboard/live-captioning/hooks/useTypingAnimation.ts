@@ -8,6 +8,7 @@ export interface UseTypingAnimationReturn {
   setPendingTranslation: (translation: string) => void
   queueTranslation: (translation: string) => void
   clearAll: () => void
+  clearPendingQueue: () => void
   typingQueueRef: React.MutableRefObject<string[]>
   scrollToBottom: (ref: React.RefObject<HTMLDivElement>) => void
 }
@@ -143,6 +144,20 @@ export const useTypingAnimation = (
     }
   }, [])
 
+  // Clear only the pending queue and stop current typing, keep completed translations
+  const clearPendingQueue = useCallback(() => {
+    console.log('[TypingAnimation] Clearing pending queue and stopping current typing')
+    setTypingText('')
+    setIsTyping(false)
+    isTypingRef.current = false
+    setPendingTranslation('')
+    typingQueueRef.current = []
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current)
+      typingIntervalRef.current = null
+    }
+  }, [])
+
   return {
     completedTranslations,
     typingText,
@@ -151,6 +166,7 @@ export const useTypingAnimation = (
     setPendingTranslation,
     queueTranslation,
     clearAll,
+    clearPendingQueue,
     typingQueueRef,
     scrollToBottom
   }
