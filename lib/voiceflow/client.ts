@@ -108,12 +108,18 @@ export class VoiceFlowRecognition {
 
   onstart: ((e: Event) => void) | null = null;
   onaudioend: ((e: Event) => void) | null = null;
+  onspeechstart: ((e: Event) => void) | null = null;
+  onspeechend: ((e: Event) => void) | null = null;
   onresult: ((e: any) => void) | null = null;
   ontranslation: ((e: any) => void) | null = null;
   onerror: ((e: any) => void) | null = null;
   onend: ((e: Event) => void) | null = null;
+  oninfo: ((e: any) => void) | null = null;
 
   voiceFlow: VoiceFlowExtras = {};
+  
+  // Speech state tracking for speech events
+  private speechActive = false;
 
   private ws?: WebSocket;
   private cleanup?: () => void;
@@ -121,6 +127,11 @@ export class VoiceFlowRecognition {
   private url: string;
   private audioContextClosed = false;
   private userStopped = false;
+  
+  // Reconnection logic for stream rotation resilience
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(url: string, extras?: Partial<VoiceFlowExtras>) {
     this.url = url;
@@ -138,6 +149,8 @@ export class VoiceFlowRecognition {
       this.ws.close();
     }
     
+    // CRITICAL: Reset userStopped flag so messages are processed
+    this.userStopped = false;
     this.started = true;
 
     const url = this.voiceFlow.url || this.url;
@@ -149,6 +162,8 @@ export class VoiceFlowRecognition {
       this.ws = new WebSocket(url, protocols);
       this.ws.binaryType = "arraybuffer";
       this.ws.onopen = () => {
+        // Reset reconnect attempts on successful connection
+        this.reconnectAttempts = 0;
         this.handleOpen();
       };
       this.ws.onmessage = (ev) => this.handleMessage(ev);
@@ -157,20 +172,32 @@ export class VoiceFlowRecognition {
         this.emitError("network", (ev as any).message || "ws_error");
       };
       this.ws.onclose = (ev) => {
+        // Auth failure - don't retry
         if (ev.code === 1008) {
           this.emitError("auth", "Authentication failed: " + (ev.reason || "Invalid token"));
           this.finish("end");
           return;
         }
         
-        // CRITICAL FIX: Don't end session on normal closures (1000, 1005)
-        // VoiceFlow handles stream rotation internally - we should NOT call finish()
-        // Only end session on authentication errors (1008) or critical errors
-        // WebSocket closed - VoiceFlow will handle reconnection
+        // Only reconnect for abnormal closures (matches VoiceFlow example)
+        // Code 1000 = normal close - server handles stream rotation internally, no reconnect needed
+        if (ev.code !== 1000 && !this.userStopped && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          
+          if (this.reconnectTimeoutId) {
+            clearTimeout(this.reconnectTimeoutId);
+          }
+          
+          this.reconnectTimeoutId = setTimeout(() => {
+            if (!this.userStopped && this.started) {
+              this.started = false;
+              this.start();
+            }
+          }, 1000 * this.reconnectAttempts);
+          return;
+        }
         
-        // Reset state but don't call finish() - let VoiceFlow handle reconnection
-        this.started = false;
-        this.userStopped = false;
+        this.finish("end");
       };
     } catch (error) {
       console.error("Failed to create WebSocket:", error);
@@ -181,16 +208,42 @@ export class VoiceFlowRecognition {
 
   stop(): void {
     this.userStopped = true;
+    
+    // Clear any pending reconnection
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
+    this.reconnectAttempts = 0;
+    
+    // Stop audio capture FIRST to prevent more data being sent
+    if (this.cleanup) {
+      try { this.cleanup(); } catch {}
+      this.cleanup = undefined;
+    }
+    
     try { 
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Send stop message to server
         this.ws.send(JSON.stringify({ type: "stop" })); 
+        // Close WebSocket immediately - don't wait for server response
+        this.ws.close(1000, "User stopped");
       }
     } catch {}
+    
     this.finish("stop");
   }
 
   abort(): void {
     this.userStopped = true;
+    
+    // Clear any pending reconnection
+    if (this.reconnectTimeoutId) {
+      clearTimeout(this.reconnectTimeoutId);
+      this.reconnectTimeoutId = null;
+    }
+    this.reconnectAttempts = 0;
+    
     this.finish("abort");
   }
 
@@ -244,9 +297,22 @@ export class VoiceFlowRecognition {
   // --- internals ---
   private async handleOpen(): Promise<void> {
     try {
-      // Add a small delay to ensure WebSocket is fully ready
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // WebSocket is ready when onopen fires - no delay needed
       
+      // STEP 1: Check microphone permission first
+      console.log('[VoiceFlow] Checking microphone permission...');
+      try {
+        const permissionOk = await this.checkMicrophonePermission();
+        console.log('[VoiceFlow] Permission check result:', permissionOk);
+      } catch (permError) {
+        console.error('[VoiceFlow] Permission check failed critically:', permError);
+        // Include the actual error message in the emitted error
+        const errorMsg = permError instanceof Error ? permError.message : 'Permission denied';
+        this.emitError("permission", errorMsg);
+        return; // Stop here, don't try to proceed
+      }
+      
+      // STEP 2: Determine capture mode
       const mode = this.voiceFlow.captureMode ?? "auto";
       let usePCM = mode === "PCM16";
       
@@ -257,12 +323,27 @@ export class VoiceFlowRecognition {
         usePCM = hasWorklet && !isMobileBrowser();
       }
       
-      if (usePCM) await this.startPCM();
-      else await this.startOpus();
+      console.log('[VoiceFlow] Audio capture mode:', { configured: mode, usePCM, isMobile: isMobileBrowser() });
+      
+      // STEP 3: Start audio capture with the chosen mode
+      if (usePCM) {
+        try {
+          await this.startPCM();
+        } catch (pcmError) {
+          // PCM/AudioWorklet failed (likely CSP blocking blob: URLs)
+          // Fall back to OPUS
+          console.warn('[VoiceFlow] PCM16 failed, falling back to OPUS:', pcmError);
+          await this.startOpus();
+        }
+      } else {
+        await this.startOpus();
+      }
       this.onstart?.(new Event("start"));
     } catch (error) {
       console.error("Error in handleOpen:", error);
-      this.emitError("initialization", "Failed to initialize audio capture");
+      // Include the actual error message for better debugging
+      const errorMsg = error instanceof Error ? error.message : 'Failed to initialize audio capture';
+      this.emitError("initialization", errorMsg);
     }
   }
 
@@ -328,8 +409,6 @@ export class VoiceFlowRecognition {
         ...payload
       };
       
-      
-      
       this.ws.send(JSON.stringify(msg));
     } catch (error) {
       this.emitError("communication", "Failed to send start message");
@@ -349,6 +428,79 @@ export class VoiceFlowRecognition {
       };
       this.ws.send(JSON.stringify(msg));
     } catch {}
+  }
+
+  /**
+   * Check and request microphone permission before trying to access it
+   * This helps avoid NotAllowedError in browsers with stricter permission policies
+   * Returns true if permission check succeeded, false if we should proceed anyway
+   */
+  private async checkMicrophonePermission(): Promise<boolean> {
+    console.log('[VoiceFlow] Browser info:', {
+      userAgent: navigator.userAgent,
+      vendor: navigator.vendor,
+      platform: navigator.platform
+    });
+    
+    // Check if Permissions API is available
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        console.log('[VoiceFlow] Microphone permission status:', permissionStatus.state);
+        
+        if (permissionStatus.state === 'denied') {
+          throw new Error('Microphone permission denied. Please enable microphone access in your browser settings.');
+        }
+        
+        // If prompt or granted, we can proceed - the actual getUserMedia call will trigger the prompt if needed
+      } catch (error) {
+        // Permissions API might not be fully supported (e.g., some Chromium builds)
+        // In this case, we'll let getUserMedia handle the permission request
+        console.warn('[VoiceFlow] Permissions API check failed, will rely on getUserMedia:', error);
+      }
+    } else {
+      console.warn('[VoiceFlow] Permissions API not available in this browser');
+    }
+    
+    // Try a lightweight permission request first with minimal constraints
+    // This ensures the browser shows a permission dialog before we try full audio setup
+    try {
+      console.log('[VoiceFlow] Requesting microphone permission with test stream...');
+      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[VoiceFlow] Test stream acquired:', {
+        tracks: testStream.getTracks().length,
+        trackSettings: testStream.getTracks()[0]?.getSettings()
+      });
+      
+      // Immediately stop the test stream
+      testStream.getTracks().forEach(track => {
+        console.log('[VoiceFlow] Stopping test track:', track.label);
+        track.stop();
+      });
+      console.log('[VoiceFlow] Microphone permission granted via test stream');
+      return true;
+    } catch (error) {
+      console.error('[VoiceFlow] Microphone permission request failed:', error);
+      
+      // Check if this is a real permission error or something else
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied')) {
+          // This is a genuine permission denial - must throw
+          throw error;
+        } else if (error.name === 'NotFoundError') {
+          // No microphone hardware found
+          throw new Error('No microphone found. Please connect a microphone and try again.');
+        } else if (error.name === 'NotReadableError') {
+          // Microphone is in use by another application
+          throw new Error('Microphone is busy. Please close other applications using the microphone and try again.');
+        } else {
+          // Other errors - log but try to proceed anyway
+          console.warn('[VoiceFlow] Permission check failed with non-blocking error, will attempt to proceed:', error);
+          return false; // Proceed anyway, let the actual getUserMedia call handle it
+        }
+      }
+      throw error; // Unknown error type
+    }
   }
 
   private async startPCM() {
@@ -441,53 +593,28 @@ registerProcessor("pcm-worklet", PCMWorklet);
   }
 
   private async startOpus() {
-    // Try exact constraints first (preserves desktop behavior)
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-          channelCount: 1, 
-          noiseSuppression: true, 
-          echoCancellation: true,
-          sampleRate: 48000
-        } 
-      });
-    } catch (error) {
-      // Fallback to ideal constraints for mobile compatibility
-      console.warn('[VoiceFlow] Exact audio constraints failed, trying ideal constraints:', error);
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-          channelCount: { ideal: 1 }, 
-          noiseSuppression: true, 
-          echoCancellation: true,
-          sampleRate: { ideal: 48000 }
-        } 
-      });
-    }
+    // Match VoiceFlow example EXACTLY - use fixed constraints
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: { 
+        channelCount: 1, 
+        noiseSuppression: true, 
+        echoCancellation: true,
+        sampleRate: 48000
+      } 
+    });
     
-    // Detect best supported MIME type
-    const mimeTypes = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/mp4'
-    ];
-    const mimeType = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || 'audio/webm;codecs=opus';
-    
-    // CRITICAL FIX: Use timeslice of 10ms for immediate audio chunks
-    // 40ms was causing batching delays
+    // Use fixed MIME type to match VoiceFlow example exactly
     const rec = new MediaRecorder(stream, { 
-      mimeType: mimeType, 
+      mimeType: "audio/webm;codecs=opus", 
       audioBitsPerSecond: 32000 
     });
     
     this.cleanup = () => { try { rec.stop(); } catch {}; stream.getTracks().forEach(t => t.stop()); };
     this.sendStart({ mode: "WEBM_OPUS" });
     
-    // CRITICAL: Use 10ms timeslice for real-time streaming (was 40ms)
+    // Use 10ms timeslice for real-time streaming
     rec.start(10);
     
-    // CRITICAL: Remove async to prevent event loop delays
     rec.ondataavailable = (e) => {
       if (e.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
         try {
@@ -498,18 +625,57 @@ registerProcessor("pcm-worklet", PCMWorklet);
   }
 
   private handleMessage(ev: MessageEvent) {
-    const data = JSON.parse(ev.data) as ServerTranscriptMsg | ServerTranslationMsg | ServerInfoMsg;
+    // ROOT CAUSE FIX: Ignore ALL messages after user stopped
+    // This prevents translations in the server pipeline from being displayed
+    if (this.userStopped) {
+      console.log('[VoiceFlow] Ignoring message - user stopped');
+      return;
+    }
     
-    // Minimal logging only for errors is retained
+    const data = JSON.parse(ev.data) as ServerTranscriptMsg | ServerTranslationMsg | ServerInfoMsg;
     
     // Handle error messages
     if (data.type === "error") {
-      this.emitError("service", (data as any).err || "unknown_error");
+      const errorMsg = (data as any).err || (data as any).message || "unknown_error";
+      console.error('[VoiceFlow] Server error:', errorMsg);
+      
+      // Check if this is a recoverable encoding error after stream rotation
+      // This happens when server's internal state gets confused after rotation
+      const isEncodingError = errorMsg.includes('encoding') || 
+                              errorMsg.includes('Unable to recognize speech') ||
+                              errorMsg.includes('channel config');
+      
+      if (isEncodingError && !this.userStopped && this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        
+        // Clean up current connection
+        if (this.cleanup) { this.cleanup(); }
+        try { this.ws?.close(); } catch {}
+        
+        // Restart after brief delay
+        setTimeout(() => {
+          if (!this.userStopped) {
+            this.started = false;
+            this.start();
+          }
+        }, 500);
+        return;
+      }
+      
+      this.emitError("service", errorMsg);
       return;
     }
     
     // Handle info messages (e.g., stream rotation notifications)
     if (data.type === "info" || data.type === "ready" || data.type === "stopped") {
+      // Forward info events for stream rotation awareness
+      if (this.oninfo) {
+        const evt: any = new Event("info");
+        evt.data = data;
+        evt.messageType = data.type;
+        evt.info = data;
+        this.oninfo(evt);
+      }
       // Don't call finish() - VoiceFlow handles stream rotation internally
       return;
     }
@@ -541,7 +707,23 @@ registerProcessor("pcm-worklet", PCMWorklet);
     const evt: any = new Event("result");
     evt.results = list;
     evt.resultIndex = list.length - 1;
+    // Include stream rotation metadata if available
+    evt.streamId = (t as any).streamId;
+    evt.bridgingOffset = (t as any).bridgingOffset;
     this.onresult?.(evt);
+
+    // Fire speech detection events only on state transitions
+    if (!this.speechActive && t.transcript && t.transcript.trim()) {
+      // Speech just started
+      this.speechActive = true;
+      this.onspeechstart?.(new Event("speechstart"));
+    }
+    
+    if (this.speechActive && t.isFinal) {
+      // Speech just ended (got final result)
+      this.speechActive = false;
+      this.onspeechend?.(new Event("speechend"));
+    }
   }
 
   private emitError(name: string, message: string) {

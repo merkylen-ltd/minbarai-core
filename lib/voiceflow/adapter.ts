@@ -46,7 +46,10 @@ export class VoiceFlowAdapter {
   onerror: ((event: SpeechRecognitionErrorEvent) => void) | null = null;
   onresult: ((event: SpeechRecognitionEvent) => void) | null = null;
   onaudioend: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
+  onspeechend: (() => void) | null = null;
   ontranslation: ((event: any) => void) | null = null;
+  oninfo: ((event: any) => void) | null = null;
 
   private recognition: VoiceFlowRecognition;
   private config: VoiceFlowConfig;
@@ -64,7 +67,9 @@ export class VoiceFlowAdapter {
       endpointing: { singleUtterance: false },
       emitStability: false,
       phraseHints: ["MinbarAI"],
-      captureMode: 'WEBM_OPUS',
+      // Use 'auto' to match VoiceFlow example - PCM16 on desktop, OPUS on mobile
+      // PCM16 handles stream rotation better than OPUS container format
+      captureMode: 'auto',
       ...extras
     });
 
@@ -120,9 +125,22 @@ export class VoiceFlowAdapter {
       this.onaudioend?.();
     };
 
+    this.recognition.onspeechstart = () => {
+      this.onspeechstart?.();
+    };
+
+    this.recognition.onspeechend = () => {
+      this.onspeechend?.();
+    };
+
     // Forward translation events
-    (this.recognition as any).ontranslation = (event: any) => {
+    this.recognition.ontranslation = (event: any) => {
       this.ontranslation?.(event);
+    };
+
+    // Forward info events (stream rotation, ready, stopped)
+    this.recognition.oninfo = (event: any) => {
+      this.oninfo?.(event);
     };
   }
 

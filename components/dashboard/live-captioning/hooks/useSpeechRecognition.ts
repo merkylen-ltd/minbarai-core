@@ -37,6 +37,7 @@ export interface UseSpeechRecognitionProps {
   scrollToBottom: (ref: React.RefObject<HTMLDivElement>) => void
   startUsageSession: () => Promise<void>
   endUsageSession: () => Promise<void>
+  onClearTranslationQueue?: () => void
 }
 
 export interface UseSpeechRecognitionReturn {
@@ -65,7 +66,8 @@ export const useSpeechRecognition = ({
   onError,
   scrollToBottom,
   startUsageSession,
-  endUsageSession
+  endUsageSession,
+  onClearTranslationQueue
 }: UseSpeechRecognitionProps): UseSpeechRecognitionReturn => {
   const [isRecording, setIsRecording] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
@@ -384,7 +386,7 @@ export const useSpeechRecognition = ({
               targetLanguage: targetName,
               geminiModelConfig: {
                 model: 'gemini-2.5-flash-lite',
-                temperature: 0.4,
+                temperature: 0.7,
                 maxTokens: 1000,
                 topP: 0.8
               }
@@ -586,7 +588,7 @@ export const useSpeechRecognition = ({
           targetLanguage: targetNameSnapshot,
           geminiModelConfig: {
             model: 'gemini-2.5-flash-lite',
-            temperature: 0.4,
+            temperature: 0.7,
             maxTokens: 1000,
             topP: 0.8
           }
@@ -620,29 +622,51 @@ export const useSpeechRecognition = ({
       
       let errorMessage = 'Failed to start recording. '
       let errorDetails = ''
+      let showDetailedError = false
       
       if (error instanceof Error) {
         if (error.name === 'NotAllowedError') {
           if (isMobileBrowser()) {
             errorMessage = 'Microphone Permission Required'
             errorDetails = 'Please allow microphone access in your browser settings and refresh the page. On mobile, you may need to tap the microphone icon in your browser\'s address bar.'
+            showDetailedError = true
           } else {
-            errorMessage += 'Please allow microphone access.'
+            errorMessage = 'Microphone Permission Required'
+            errorDetails = 'Please allow microphone access:\n\n' +
+              '1. Look for the microphone icon in your browser\'s address bar\n' +
+              '2. Click it and select "Allow"\n' +
+              '3. If you don\'t see the icon, check your browser settings\n' +
+              '4. For embedded browsers: You may need to open this page in your system browser (Chrome, Firefox, etc.)\n\n' +
+              'Then refresh the page and try again.'
+            showDetailedError = true
           }
         } else if (error.name === 'NotFoundError') {
           if (isMobileBrowser()) {
             errorMessage = 'No Microphone Found'
             errorDetails = 'No microphone detected on this device. Please check your device\'s microphone settings.'
+            showDetailedError = true
           } else {
-            errorMessage += 'No microphone found.'
+            errorMessage = 'No Microphone Found'
+            errorDetails = 'No microphone detected. Please check that:\n\n' +
+              '1. Your microphone is properly connected\n' +
+              '2. Your system recognizes the microphone\n' +
+              '3. No other application is using the microphone'
+            showDetailedError = true
           }
         } else if (error.name === 'NotSupportedError') {
           if (isMobileBrowser()) {
             errorMessage = 'Audio Not Supported'
             errorDetails = 'Your mobile browser doesn\'t support the required audio features. Please try using Chrome or Safari on your mobile device.'
+            showDetailedError = true
           } else {
-            errorMessage = error.message
+            errorMessage = 'Audio Not Supported'
+            errorDetails = 'Your browser doesn\'t support the required audio features. Please try using a modern browser like Chrome, Firefox, or Edge.'
+            showDetailedError = true
           }
+        } else if (error.message && error.message.includes('Permission denied')) {
+          errorMessage = 'Microphone Permission Denied'
+          errorDetails = 'Microphone access was denied. Please check your browser settings and grant permission to use the microphone.'
+          showDetailedError = true
         } else {
           errorMessage = error.message
         }
@@ -650,7 +674,7 @@ export const useSpeechRecognition = ({
       
       setStatus({ connected: false, status: 'error', message: errorMessage })
       
-      if (isMobileBrowser() && errorDetails) {
+      if (showDetailedError && errorDetails) {
         onError(errorMessage, errorDetails, 'warning')
       }
     }
@@ -699,9 +723,12 @@ export const useSpeechRecognition = ({
       }
     }
     
+    // Clear any pending translations in the typing queue
+    onClearTranslationQueue?.()
+    
     endUsageSession()
     onInterimText('')
-  }, [isRecording, endUsageSession, onInterimText])
+  }, [isRecording, endUsageSession, onInterimText, onClearTranslationQueue])
 
   return {
     isRecording,
