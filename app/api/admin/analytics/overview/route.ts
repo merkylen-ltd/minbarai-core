@@ -82,10 +82,12 @@ export async function GET(request: NextRequest) {
           .not('stripe_subscription_id', 'is', null)
 
         if (usersWithSubs) {
+          // Store stripe reference to ensure TypeScript knows it's not null in the closure
+          const stripeClient = stripe
           const subscriptionAmounts = await Promise.all(
             usersWithSubs.map(async (userData) => {
               try {
-                const subscription = await stripe.subscriptions.retrieve(
+                const subscription = await stripeClient.subscriptions.retrieve(
                   userData.stripe_subscription_id!
                 )
                 const amount = subscription.items.data[0]?.price.unit_amount || 0
