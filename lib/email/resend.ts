@@ -7,8 +7,10 @@
 
 import { Resend } from 'resend'
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Initialize Resend client only if API key is available
+const resend = process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 'your_resend_api_key'
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null
 
 /**
  * Default from email address
