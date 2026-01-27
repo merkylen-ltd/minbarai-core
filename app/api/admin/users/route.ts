@@ -68,11 +68,12 @@ export async function GET(request: NextRequest) {
     // Enrich with Stripe data if requested
     let enrichedUsers = users || []
     if (enrichStripe && stripe) {
+      const stripeClient = stripe
       enrichedUsers = await Promise.all(
         (users || []).map(async (userData) => {
           try {
             if (userData.stripe_subscription_id) {
-              const subscription = await stripe.subscriptions.retrieve(userData.stripe_subscription_id)
+              const subscription = await stripeClient.subscriptions.retrieve(userData.stripe_subscription_id)
               
               return {
                 ...userData,
