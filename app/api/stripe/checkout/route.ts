@@ -321,7 +321,7 @@ export async function POST(request: Request) {
       // Include user_id in both metadata and client_reference_id for redundancy
       metadata: {
         user_id: user.id,
-        email: user.email,
+        email: user.email ?? null,
       },
       client_reference_id: user.id,
       // Allow discount codes if you have any promotional campaigns
@@ -415,7 +415,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { 
         error: 'Unable to create checkout session. Please try again or contact support.',
-        message: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : undefined
       },
       { status: 500 }
     )
