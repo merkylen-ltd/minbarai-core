@@ -7,6 +7,7 @@
  * Usage: 
  *   node scripts/seed-database.js <email> [password]
  *   node scripts/seed-database.js cleanup <email>
+ *   node scripts/seed-database.js reset <email>
  *   node scripts/seed-database.js list
  * 
  * Make sure to set up your environment variables first:
@@ -395,6 +396,34 @@ async function cleanupUser(email) {
   console.log('   Note: Auth user still exists in auth.users (requires manual deletion)');
 }
 
+async function resetUsage(email) {
+  console.log(`🔄 Resetting usage for user: ${email}...`);
+
+  const { data: user, error: userError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', email)
+    .single();
+
+  if (userError || !user) {
+    console.error('❌ Error finding user:', userError?.message || 'User not found');
+    return;
+  }
+
+  const { error: sessionsError } = await supabase
+    .from('usage_sessions')
+    .delete()
+    .eq('user_id', user.id);
+
+  if (sessionsError) {
+    console.error('❌ Error resetting usage:', sessionsError);
+    return;
+  }
+
+  console.log('✅ Usage reset successfully');
+  console.log('   Email and password unchanged. All usage sessions cleared.');
+}
+
 async function main() {
   const args = process.argv.slice(2);
   
@@ -407,12 +436,14 @@ async function main() {
     console.log('Usage:');
     console.log('  node scripts/seed-database.js <email> [password]');
     console.log('  node scripts/seed-database.js cleanup <email>');
+    console.log('  node scripts/seed-database.js reset <email>');
     console.log('  node scripts/seed-database.js list');
     console.log('');
     console.log('Examples:');
     console.log('  node scripts/seed-database.js test@example.com');
     console.log('  node scripts/seed-database.js test@example.com MyPassword123');
     console.log('  node scripts/seed-database.js cleanup test@example.com');
+    console.log('  node scripts/seed-database.js reset test@example.com  # Same email/password, clear usage');
     console.log('  node scripts/seed-database.js list');
     process.exit(1);
   }
@@ -438,6 +469,23 @@ async function main() {
     }
     
     await cleanupUser(email);
+    return;
+  }
+
+  if (command === 'reset') {
+    if (args.length < 2) {
+      console.error('❌ Missing email for reset');
+      console.log('Usage: node scripts/seed-database.js reset <email>');
+      process.exit(1);
+    }
+
+    const email = args[1];
+    if (!validateEmail(email)) {
+      console.error('❌ Invalid email format');
+      process.exit(1);
+    }
+
+    await resetUsage(email);
     return;
   }
 
