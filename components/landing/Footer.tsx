@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import BookADemoButton from './BookADemoButton';
 
 const LogoIcon: React.FC<{ className?: string }> = ({ className }) => {
   return (
@@ -100,12 +101,10 @@ const Footer: React.FC = () => {
             >
               Sign In
             </Link>
-            <Link
-              href="/auth/signup"
-              className="hidden text-accent-400 hover:text-accent-300 transition-colors text-sm font-heading min-h-[44px] md:min-h-0 flex items-center"
-            >
-              Get Started
-            </Link>
+            <BookADemoButton
+              linkOnly
+              className="text-accent-400 hover:text-accent-300 transition-colors text-sm font-heading min-h-[44px] md:min-h-0 flex items-center"
+            />
           </div>
         </div>
       </div>

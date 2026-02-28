@@ -20,7 +20,7 @@ const Hero: React.FC = () => {
     <section className="section-min-height flex flex-col justify-center items-center text-center relative z-10 px-4 gradient-hero pt-16">
       <div className="container-custom hero-text-container">
         
-        <h1 className="font-display text-fluid-4xl text-neutral-0 mb-6 leading-relaxed overflow-visible">
+        <h1 className="font-hero text-fluid-4xl text-neutral-0 mb-6 leading-relaxed overflow-visible">
           <TypingText
             key="main-text"
             text="From the Minbar ٱلْـمِنْبَـرُ to the World."

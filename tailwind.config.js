@@ -136,15 +136,15 @@ module.exports = {
         "blink-cursor": "blink-cursor 0.7s step-end infinite",
       },
       fontFamily: {
-        // Modern Primary Fonts
+        // Modern Primary Fonts (Lora matches hero, pairs well with Arabic)
         sans: ["Inter", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
-        serif: ["Playfair Display", "Georgia", "Times New Roman", "serif"],
-        display: ["Playfair Display", "Georgia", "serif"],
+        serif: ["var(--font-hero)", "Lora", "Georgia", "Times New Roman", "serif"],
+        display: ["var(--font-hero)", "Lora", "Georgia", "serif"],
         
         // Legacy Fonts (for compatibility)
         amiri: ["Amiri", "serif"],
         inter: ["Inter", "sans-serif"],
-        lora: ["Playfair Display", "serif"], // Upgraded to Playfair Display
+        lora: ["var(--font-hero)", "Lora", "Georgia", "serif"],
         poppins: ["Inter", "sans-serif"], // Consolidated to Inter
         kufi: ["Noto Kufi Arabic", "sans-serif"],
         
