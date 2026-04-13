@@ -2,14 +2,14 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Constants for the ping-based usage tracking system
-// TTL: How long a session can go without activity before being marked as expired
-// Set to 30 minutes to accommodate long recording sessions without requiring heartbeat pings
-const TTL_SECONDS = 30 * 60 // 30 minutes TTL
+// How long a session can go without a ping before being marked as expired.
+// Must match cleanup/route.ts and supabase/database.sql — see lib/usage/constants.ts
+const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
 
 interface PingRequest {
   active: boolean

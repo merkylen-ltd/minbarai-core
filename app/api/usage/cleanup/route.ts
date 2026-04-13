@@ -1,11 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// TTL for session expiry (3 minutes without ping = expired)
-const TTL_SECONDS = 3 * 60
+// Must match ping/route.ts and supabase/database.sql — see lib/usage/constants.ts
+const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
 
 /**
  * Stale Session Cleanup API
