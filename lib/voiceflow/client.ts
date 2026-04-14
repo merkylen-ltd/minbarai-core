@@ -144,8 +144,14 @@ export class VoiceFlowRecognition {
       return;
     }
     
-    // Clean up any existing connection
+    // Clean up any existing connection.
+    // Null out all handlers first so the old socket's onclose cannot re-enter
+    // finish() or trigger a spurious reconnect after we create the new socket.
     if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
       this.ws.close();
     }
     
@@ -352,8 +358,16 @@ export class VoiceFlowRecognition {
       }
 
       // Final guard before emitting onstart: don't announce a new connection if
-      // stop() was called while audio capture was being set up
-      if (this.userStopped) return;
+      // stop() was called while audio capture was being set up.
+      // startPCM/startOpus normally clean up themselves when they detect userStopped,
+      // but call this.cleanup here as well in case of any edge-case timing.
+      if (this.userStopped) {
+        if (this.cleanup) {
+          try { this.cleanup(); } catch {}
+          this.cleanup = undefined;
+        }
+        return;
+      }
 
       this.onstart?.(new Event("start"));
     } catch (error) {
@@ -541,16 +555,24 @@ export class VoiceFlowRecognition {
     } catch (error) {
       // Fallback to ideal constraints for mobile compatibility
       console.warn('[VoiceFlow] Exact audio constraints failed, trying ideal constraints:', error);
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-          channelCount: { ideal: 1 }, 
-          noiseSuppression: true, 
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: { ideal: 1 },
+          noiseSuppression: true,
           echoCancellation: true,
           sampleRate: { ideal: targetHz }
-        } 
+        }
       });
     }
-    
+
+    // Guard: stop() may have been called while getUserMedia was prompting the user.
+    // stop() found this.cleanup === undefined and could not release the stream;
+    // we must do it here before any more resources are allocated.
+    if (this.userStopped) {
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
     const ctx = new AudioContext({ latencyHint: "interactive" });
     
     // Mobile-specific: ensure AudioContext is running
@@ -574,32 +596,42 @@ class PCMWorklet extends AudioWorkletProcessor {
 }
 registerProcessor("pcm-worklet", PCMWorklet);
 `;
-    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "text/javascript" })));
+    // Load worklet module; revoke the blob URL immediately after — the browser
+    // has already loaded the module and holding the URL serves no purpose.
+    const blobUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "text/javascript" }));
+    await ctx.audioWorklet.addModule(blobUrl);
+    URL.revokeObjectURL(blobUrl);
+
     const src = ctx.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(ctx, "pcm-worklet");
     node.port.postMessage({ frameMs, targetHz });
     src.connect(node);
 
-    this.cleanup = () => { 
-      try { 
-        // Starting cleanup
-        node.disconnect(); 
-        src.disconnect(); 
-        
-        // CRITICAL: Check flag BEFORE attempting to close AudioContext
+    // Build cleanup closure before checking userStopped so we always have a
+    // single canonical way to tear down ctx + stream regardless of code path.
+    const doCleanup = () => {
+      try {
+        node.disconnect();
+        src.disconnect();
         if (!this.audioContextClosed && ctx.state !== 'closed') {
-          // Closing AudioContext
           ctx.close();
           this.audioContextClosed = true;
-        } else {
-          // AudioContext already closed, skipping
         }
-      } catch (error) {
-        // Cleanup error - ensure flag is set even if close fails
+      } catch {
         this.audioContextClosed = true;
-      }; 
-      stream.getTracks().forEach(t => t.stop()); 
+      }
+      stream.getTracks().forEach(t => t.stop());
     };
+
+    // Guard: stop() may have been called while addModule was awaited.
+    // stop() found this.cleanup === undefined and skipped teardown; we own the
+    // AudioContext and stream now, so we must clean up before returning.
+    if (this.userStopped) {
+      doCleanup();
+      return;
+    }
+
+    this.cleanup = doCleanup;
     this.sendStart({ mode: "PCM16", sampleRateHz: targetHz });
 
     node.port.onmessage = (e) => {
@@ -614,17 +646,24 @@ registerProcessor("pcm-worklet", PCMWorklet);
 
   private async startOpus() {
     // Match VoiceFlow example EXACTLY - use fixed constraints
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      audio: { 
-        channelCount: 1, 
-        noiseSuppression: true, 
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        noiseSuppression: true,
         echoCancellation: true,
         sampleRate: 48000
-      } 
+      }
     });
-    
+
+    // Guard: stop() may have been called while getUserMedia was prompting the user.
+    // stop() found this.cleanup === undefined and could not release the stream.
+    if (this.userStopped) {
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
     // Use fixed MIME type to match VoiceFlow example exactly
-    const rec = new MediaRecorder(stream, { 
+    const rec = new MediaRecorder(stream, {
       mimeType: "audio/webm;codecs=opus", 
       audioBitsPerSecond: 32000 
     });

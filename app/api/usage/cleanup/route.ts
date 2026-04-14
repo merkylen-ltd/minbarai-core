@@ -20,9 +20,9 @@ const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
  * This is critical for accurate usage tracking - without cleanup,
  * stale sessions would never be closed and usage wouldn't be recorded.
  * 
- * Usage:
- * - POST /api/usage/cleanup - Run cleanup (requires CRON_SECRET header for production)
- * - GET /api/usage/cleanup - Check status (no auth required)
+ * Usage (both methods require Authorization: Bearer <CRON_SECRET>):
+ * - POST /api/usage/cleanup - Run cleanup
+ * - GET /api/usage/cleanup - Check stale session count without running cleanup
  */
 
 // Lazy initialization of Supabase admin client
@@ -55,9 +55,32 @@ interface CleanupResult {
 }
 
 /**
+ * Shared auth guard for both GET and POST.
+ * Always requires CRON_SECRET — returns an error response if auth fails,
+ * or null if auth passes.  Fail-secure: if CRON_SECRET is not configured
+ * the endpoint is unavailable (503) rather than open (2xx).
+ */
+function requireCronAuth(request: Request): NextResponse | null {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) {
+    console.error('[Cleanup] CRON_SECRET is not configured — endpoint unavailable')
+    return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
+  }
+  const authHeader = request.headers.get('authorization')
+  if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+    console.warn('[Cleanup] Unauthorized request')
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return null
+}
+
+/**
  * GET - Check cleanup status and stale session count
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const authError = requireCronAuth(request)
+  if (authError) return authError
+
   try {
     const supabaseAdmin = getSupabaseAdmin()
     const now = new Date()
@@ -96,19 +119,10 @@ export async function GET() {
  * POST - Execute cleanup of stale sessions
  */
 export async function POST(request: Request) {
+  const authError = requireCronAuth(request)
+  if (authError) return authError
+
   try {
-    // In production, verify the CRON_SECRET to prevent unauthorized cleanup
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = request.headers.get('authorization')
-    
-    // Skip auth check in development or if CRON_SECRET not set
-    if (cronSecret && process.env.NODE_ENV === 'production') {
-      if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
-        console.warn('[Cleanup] Unauthorized cleanup attempt')
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-    }
-    
     const supabaseAdmin = getSupabaseAdmin()
     const now = new Date()
     const ttlCutoff = new Date(now.getTime() - TTL_SECONDS * 1000)
