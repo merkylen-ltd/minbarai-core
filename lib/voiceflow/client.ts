@@ -208,29 +208,35 @@ export class VoiceFlowRecognition {
 
   stop(): void {
     this.userStopped = true;
-    
+
     // Clear any pending reconnection
     if (this.reconnectTimeoutId) {
       clearTimeout(this.reconnectTimeoutId);
       this.reconnectTimeoutId = null;
     }
     this.reconnectAttempts = 0;
-    
+
     // Stop audio capture FIRST to prevent more data being sent
     if (this.cleanup) {
       try { this.cleanup(); } catch {}
       this.cleanup = undefined;
     }
-    
-    try { 
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        // Send stop message to server
-        this.ws.send(JSON.stringify({ type: "stop" })); 
-        // Close WebSocket immediately - don't wait for server response
+
+    try {
+      if (this.ws) {
+        // Null out onclose BEFORE closing so the close event doesn't re-enter finish()
+        // (prevents double onend if the socket was already being closed by auto-reconnect)
+        this.ws.onclose = null;
+        if (this.ws.readyState === WebSocket.OPEN) {
+          // Send stop message to server only if connected
+          this.ws.send(JSON.stringify({ type: "stop" }));
+        }
+        // Close regardless of readyState — aborts CONNECTING sockets from in-flight
+        // auto-reconnects that start() may have already kicked off
         this.ws.close(1000, "User stopped");
       }
     } catch {}
-    
+
     this.finish("stop");
   }
 
@@ -296,9 +302,13 @@ export class VoiceFlowRecognition {
 
   // --- internals ---
   private async handleOpen(): Promise<void> {
+    // Guard: if stop() was called before (or during) handleOpen, bail out immediately.
+    // finish() no longer resets userStopped, so this flag stays true until the next start().
+    if (this.userStopped) return;
+
     try {
       // WebSocket is ready when onopen fires - no delay needed
-      
+
       // STEP 1: Check microphone permission first
       console.log('[VoiceFlow] Checking microphone permission...');
       try {
@@ -306,25 +316,27 @@ export class VoiceFlowRecognition {
         console.log('[VoiceFlow] Permission check result:', permissionOk);
       } catch (permError) {
         console.error('[VoiceFlow] Permission check failed critically:', permError);
-        // Include the actual error message in the emitted error
         const errorMsg = permError instanceof Error ? permError.message : 'Permission denied';
         this.emitError("permission", errorMsg);
-        return; // Stop here, don't try to proceed
+        return;
       }
-      
+
+      // Guard after first async gap: stop() may have been called while we awaited
+      if (this.userStopped) return;
+
       // STEP 2: Determine capture mode
       const mode = this.voiceFlow.captureMode ?? "auto";
       let usePCM = mode === "PCM16";
-      
+
       if (mode === "auto") {
         // Keep existing check for desktop
         const hasWorklet = "audioWorklet" in (AudioContext.prototype as any);
         // Add mobile override: prefer OPUS on mobile
         usePCM = hasWorklet && !isMobileBrowser();
       }
-      
+
       console.log('[VoiceFlow] Audio capture mode:', { configured: mode, usePCM, isMobile: isMobileBrowser() });
-      
+
       // STEP 3: Start audio capture with the chosen mode
       if (usePCM) {
         try {
@@ -338,10 +350,14 @@ export class VoiceFlowRecognition {
       } else {
         await this.startOpus();
       }
+
+      // Final guard before emitting onstart: don't announce a new connection if
+      // stop() was called while audio capture was being set up
+      if (this.userStopped) return;
+
       this.onstart?.(new Event("start"));
     } catch (error) {
       console.error("Error in handleOpen:", error);
-      // Include the actual error message for better debugging
       const errorMsg = error instanceof Error ? error.message : 'Failed to initialize audio capture';
       this.emitError("initialization", errorMsg);
     }
@@ -761,8 +777,9 @@ registerProcessor("pcm-worklet", PCMWorklet);
     // Let VoiceFlow handle everything internally
     
     // Reset state for next session
+    // NOTE: userStopped is intentionally NOT reset here — it is reset in start() only,
+    // so that any in-flight handleOpen() async continuations can still observe it.
     this.started = false;
-    this.userStopped = false;
     this.audioContextClosed = false;
   }
 }
