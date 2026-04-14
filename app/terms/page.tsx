@@ -152,7 +152,7 @@ const TermsAndConditionsPage: React.FC = () => {
                   <h3 className="text-xl font-heading text-accent-300 mb-3">4.1 Subscription Plans</h3>
                   <ul className="text-neutral-300 space-y-2 ml-4">
                     <li>MinbarAI offers subscription-based access with monthly billing cycles</li>
-                    <li>Current pricing: €99 per month for full access</li>
+                    <li>Current pricing: Book a demo first</li>
                     <li>Subscription fees are billed in advance on a monthly basis</li>
                     <li>All prices are exclusive of applicable taxes</li>
                   </ul>

@@ -40,7 +40,7 @@ MinbarAI is a Software-as-a-Service (SaaS) platform that provides live multi-lan
 
 ### 4.1 Subscription Plans
 - MinbarAI offers subscription-based access with monthly billing cycles
-- Current pricing: €99 per month for full access during beta phase
+- Current pricing: Book a demo first during beta phase
 - Subscription fees are billed in advance on a monthly basis
 - All prices are exclusive of applicable taxes
 

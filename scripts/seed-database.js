@@ -442,6 +442,7 @@ async function main() {
     console.log('Examples:');
     console.log('  node scripts/seed-database.js test@example.com');
     console.log('  node scripts/seed-database.js test@example.com MyPassword123');
+    console.log('  SEED_PASSWORD=\'pass$word\' node scripts/seed-database.js test@example.com  # Use env for $, *, etc.');
     console.log('  node scripts/seed-database.js cleanup test@example.com');
     console.log('  node scripts/seed-database.js reset test@example.com  # Same email/password, clear usage');
     console.log('  node scripts/seed-database.js list');
@@ -491,7 +492,8 @@ async function main() {
 
   // Create user command
   const email = args[0];
-  const password = args[1] || generateSecurePassword();
+  // Prefer SEED_PASSWORD env var to avoid shell expansion of $, *, etc.
+  const password = process.env.SEED_PASSWORD || args[1] || generateSecurePassword();
 
   if (!validateEmail(email)) {
     console.error('❌ Invalid email format');
