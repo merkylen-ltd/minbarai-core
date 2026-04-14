@@ -96,6 +96,7 @@ export const useTypingAnimation = (
           if (typingQueueRef.current.length > 0) {
             const nextTranslation = typingQueueRef.current.shift()
             if (nextTranslation) {
+              isTypingRef.current = true // Lock before async state update to prevent race
               setPendingTranslation(nextTranslation)
             }
           }

@@ -75,7 +75,7 @@ function detectGarbagePattern(text: string): boolean {
  * @param translationId - Optional unique ID for deduplication
  * @param sourceLength - Optional source text length for hallucination detection
  */
-function validateTranslation(translated: string, translationId?: number, sourceLength?: number): string | null {
+export function validateTranslation(translated: string, translationId?: number, sourceLength?: number): string | null {
   // Check for empty or too short
   if (!translated || translated.trim().length < MIN_TRANSLATION_LENGTH) {
     console.warn('[Translation Validation] Translation too short or empty')
@@ -141,6 +141,17 @@ function validateTranslation(translated: string, translationId?: number, sourceL
   }
   
   return translated.trim()
+}
+
+/**
+ * Reset cross-session deduplication state.
+ * Must be called at the start of each recording session to prevent IDs and
+ * content hashes from a previous session from blocking valid new-session
+ * translations (VoiceFlow resets its translationId counter each session).
+ */
+export function resetValidationState(): void {
+  seenTranslationIds.clear()
+  recentTranslationHashes.clear()
 }
 
 export interface RecognitionHandlers {

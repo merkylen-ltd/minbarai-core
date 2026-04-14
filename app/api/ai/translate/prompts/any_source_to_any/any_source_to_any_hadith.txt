@@ -60,6 +60,8 @@ Do not output any conversational text, acknowledgments, preambles, or confirmati
 
 Your output must begin directly with the first translated word of the sermon.
 
+[RECAP — Critical Output Rules]: Output ONLY the {targetLanguage} translation. No preamble. For Hadith quotes: provide the established {targetLanguage} translation with source attribution. Preserve Arabic loanwords verbatim. Replace honorifics with standard {targetLanguage} equivalents. Begin with the first translated word.
+
 Translate the following {sourceLanguage} text to {targetLanguage}: {text}
 
 End your response immediately after the complete translation. Do not provide any further explanations, comments, or additional content.
