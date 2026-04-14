@@ -2,6 +2,14 @@ import { createClient } from '@supabase/supabase-js'
 import { stripe } from '@/lib/stripe/config'
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import {
+  sendPaymentFailedEmail,
+  sendPaymentActionRequiredEmail,
+  sendTrialEndingEmail,
+  sendSubscriptionCancelledEmail,
+  sendRefundNotificationEmail,
+  sendDisputeAlertEmail,
+} from '@/lib/email/resend'
 
 export const runtime = 'nodejs'
 
@@ -165,6 +173,50 @@ async function updateWebhookEventStatus(
   } catch (error) {
     console.error(`Error updating webhook event status for ${eventId}:`, error)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Email / formatting helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve a Stripe customer's email address, or null if not found.
+ * Used by handlers that receive only a customer ID.
+ */
+async function getUserEmailFromCustomer(customerId: string): Promise<string | null> {
+  try {
+    const customer = await stripe!.customers.retrieve(customerId)
+    if (customer.deleted) return null
+    return customer.email ?? null
+  } catch (err) {
+    console.error(`[Webhook] Failed to retrieve customer ${customerId} for email:`, err)
+    return null
+  }
+}
+
+/**
+ * Format a Stripe amount (in cents) as a human-readable currency string.
+ * e.g. formatStripeAmount(9900, 'eur') → '€99.00'
+ */
+function formatStripeAmount(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amountCents / 100)
+  } catch {
+    // Fallback for exotic currencies not supported by Intl
+    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`
+  }
+}
+
+/** Format a Unix timestamp as a long-form date string, e.g. "April 20, 2026". */
+function formatUnixDate(unix: number): string {
+  return new Date(unix * 1000).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 }
 
 function getClientIP(request: Request): string {
@@ -573,6 +625,18 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     }
 
     console.log(`Successfully canceled user ${supabaseUserId} subscription`)
+
+    // Send cancellation confirmation email (fire-and-forget)
+    if (customer.email && subscriptionPeriodEnd) {
+      const periodEndFormatted = new Date(subscriptionPeriodEnd).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+      sendSubscriptionCancelledEmail(customer.email, periodEndFormatted).catch((err) =>
+        console.error('[Webhook] sendSubscriptionCancelledEmail failed:', err)
+      )
+    }
   } catch (error) {
     console.error(`Error in handleSubscriptionDeleted for subscription ${subscription.id}:`, error)
     throw error
@@ -581,8 +645,23 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
 async function handleTrialWillEnd(subscription: Stripe.Subscription) {
   console.log(`Trial ending soon for subscription: ${subscription.id}`)
-  // TODO: Send email notification to user about trial ending
-  // You can implement email notifications here using your email service
+
+  const email = await getUserEmailFromCustomer(subscription.customer as string)
+  if (!email) {
+    console.warn(`[Webhook] handleTrialWillEnd: no email for customer ${subscription.customer}`)
+    return
+  }
+
+  const trialEndDate = subscription.trial_end
+    ? formatUnixDate(subscription.trial_end)
+    : 'soon'
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'
+  const addPaymentUrl = `${siteUrl}/dashboard`
+
+  // Fire-and-forget — email failure must not cause webhook retry
+  sendTrialEndingEmail(email, trialEndDate, addPaymentUrl).catch((err) =>
+    console.error('[Webhook] sendTrialEndingEmail failed:', err)
+  )
 }
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
@@ -613,8 +692,22 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
       await handleSubscriptionChange(subscription)
     }
     
-    // TODO: Send email notification to user about payment failure
-    // Implement notification logic here
+    // Send payment-failed email (fire-and-forget)
+    const toEmail = invoice.customer_email
+    if (toEmail) {
+      const amount = formatStripeAmount(invoice.amount_due, invoice.currency)
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'
+      const updatePaymentUrl = `${siteUrl}/dashboard`
+      const nextRetryDate = invoice.next_payment_attempt
+        ? formatUnixDate(invoice.next_payment_attempt)
+        : undefined
+
+      sendPaymentFailedEmail(toEmail, amount, updatePaymentUrl, nextRetryDate).catch((err) =>
+        console.error('[Webhook] sendPaymentFailedEmail failed:', err)
+      )
+    } else {
+      console.warn(`[Webhook] handleInvoicePaymentFailed: no email on invoice ${invoice.id}`)
+    }
   } catch (error) {
     console.error(`Error in handleInvoicePaymentFailed for invoice ${invoice.id}:`, error)
     throw error
@@ -623,8 +716,20 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
 
 async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice) {
   console.log(`Invoice requires payment action: ${invoice.id}`)
-  // TODO: Send email notification to user about required action
-  // This happens when 3D Secure authentication is required
+
+  const toEmail = invoice.customer_email
+  if (!toEmail) {
+    console.warn(`[Webhook] handleInvoicePaymentActionRequired: no email on invoice ${invoice.id}`)
+    return
+  }
+
+  const amount = formatStripeAmount(invoice.amount_due, invoice.currency)
+  const invoiceUrl = invoice.hosted_invoice_url || (process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com') + '/dashboard'
+
+  // Fire-and-forget
+  sendPaymentActionRequiredEmail(toEmail, amount, invoiceUrl).catch((err) =>
+    console.error('[Webhook] sendPaymentActionRequiredEmail failed:', err)
+  )
 }
 
 async function handleCustomerUpdated(customer: Stripe.Customer) {
@@ -682,19 +787,49 @@ async function handleCustomerDeleted(customer: Stripe.Customer) {
 }
 
 async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`Payment intent failed: ${paymentIntent.id}`)
-  // TODO: Track failed payment intents for monitoring
-  // You might want to send notifications or track these for analytics
+  console.log(
+    `Payment intent failed: ${paymentIntent.id}, customer: ${paymentIntent.customer}, ` +
+    `amount: ${paymentIntent.amount} ${paymentIntent.currency}, ` +
+    `last_error: ${paymentIntent.last_payment_error?.message ?? 'none'}`
+  )
+  // Subscription payment failures surface as invoice.payment_failed (which we handle above).
+  // Payment-intent-level failures typically cover one-off charges; log is sufficient for now.
 }
 
 async function handleDisputeCreated(dispute: Stripe.Dispute) {
   console.log(`Dispute created: ${dispute.id} for charge: ${dispute.charge}`)
-  // TODO: Alert admin about dispute
-  // Disputes require immediate attention - consider sending alerts
+
+  const amount = formatStripeAmount(dispute.amount, dispute.currency)
+  const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge.id
+
+  // Fire-and-forget — all ADMIN_EMAILS receive the alert
+  sendDisputeAlertEmail({
+    disputeId: dispute.id,
+    chargeId,
+    amount,
+    reason: dispute.reason,
+  }).catch((err) => console.error('[Webhook] sendDisputeAlertEmail failed:', err))
 }
 
 async function handleChargeRefunded(charge: Stripe.Charge) {
-  console.log(`Charge refunded: ${charge.id}`)
-  // TODO: Handle refund logic if needed
-  // You might want to update user status or notify them
+  console.log(`Charge refunded: ${charge.id}, amount_refunded: ${charge.amount_refunded} ${charge.currency}`)
+
+  // Retrieve customer email — charge.billing_details.email is preferred; fall back to customer lookup
+  let toEmail: string | null = charge.billing_details?.email ?? null
+  if (!toEmail && charge.customer) {
+    const customerId = typeof charge.customer === 'string' ? charge.customer : charge.customer.id
+    toEmail = await getUserEmailFromCustomer(customerId)
+  }
+
+  if (!toEmail) {
+    console.warn(`[Webhook] handleChargeRefunded: no email for charge ${charge.id}`)
+    return
+  }
+
+  const amount = formatStripeAmount(charge.amount_refunded, charge.currency)
+
+  // Fire-and-forget
+  sendRefundNotificationEmail(toEmail, amount).catch((err) =>
+    console.error('[Webhook] sendRefundNotificationEmail failed:', err)
+  )
 }

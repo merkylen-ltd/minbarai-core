@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { checkRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/auth/rate-limiting'
 import { validateAuthRedirectUrl } from '@/lib/auth/redirect-validation'
+import { sendWelcomeEmail } from '@/lib/email/resend'
 
 // Force dynamic rendering for this route
 export const dynamic = 'force-dynamic'
@@ -116,7 +117,14 @@ export async function GET(request: Request) {
                 // If user creation fails, redirect to error page instead of continuing
                 return NextResponse.redirect(`${origin}/auth/auth-code-error?error=user_creation_failed&description=${encodeURIComponent('Failed to create user account. Please contact support.')}`)
               }
-              
+
+              // Send welcome email (fire-and-forget — must not block the redirect)
+              if (user.email) {
+                sendWelcomeEmail(user.email).catch((err) =>
+                  console.error('[Auth callback] sendWelcomeEmail failed:', err)
+                )
+              }
+
               redirectTo = '/subscribe'
               console.log(`Auth callback: New user created - redirecting to subscribe`)
             }
