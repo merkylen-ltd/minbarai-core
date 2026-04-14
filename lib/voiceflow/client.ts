@@ -370,6 +370,10 @@ export class VoiceFlowRecognition {
         if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
           // Connection is still establishing, wait for it
           const checkConnection = () => {
+            // Abort if stop() was called while we were waiting to connect.
+            // Without this guard the loop would keep polling and eventually call
+            // sendStart(), opening a ghost session after the user stopped.
+            if (this.userStopped) return;
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
               this.sendStart(payload);
             } else if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {

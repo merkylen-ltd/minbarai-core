@@ -29,20 +29,6 @@ import { checkVoiceFlowCompatibility, isMobileBrowser } from '../utils/browser-u
 import { getLanguageSpecificConfig } from '../utils/language-config'
 import { setupRecognitionHandlers, resetValidationState } from '../utils/speech-recognition'
 
-// Debounce utility for language changes
-const debounce = <T extends (...args: any[]) => void>(
-  func: T,
-  delay: number
-): ((...args: Parameters<T>) => void) => {
-  let timeoutId: NodeJS.Timeout | null = null
-  
-  return (...args: Parameters<T>) => {
-    if (timeoutId) {
-      clearTimeout(timeoutId)
-    }
-    timeoutId = setTimeout(() => func(...args), delay)
-  }
-}
 
 export interface UseSpeechRecognitionProps {
   sourceLanguage: string
@@ -303,9 +289,8 @@ export const useSpeechRecognition = ({
     }
   }, [isMounted])
 
-  // Debounced language change handler for recording sessions
-  const debouncedLanguageChange = useCallback(
-    debounce(async (sourceLang: string, targetLang: string) => {
+  // Language change handler for recording sessions
+  const handleLanguageChange = useCallback(async (sourceLang: string, targetLang: string) => {
       if (!recognitionRef.current || !isRecording) return
       
       setIsLanguageChanging(true)
@@ -423,25 +408,33 @@ export const useSpeechRecognition = ({
           'warning'
         )
       }
-    }, 500), // 500ms debounce delay
-    [isRecording, promptLanguages, translationVariant, onError]
-  )
+  }, [isRecording, promptLanguages, translationVariant, onError])
 
-  // Handle language changes during recording with debouncing
+  // Handle language changes during recording with debouncing.
+  // The timeout ID is tracked in languageChangeTimeoutRef so it can be cancelled
+  // on effect cleanup (dep change or unmount). The old debounce() utility stored
+  // the ID in a closure-local variable that became unreachable whenever useCallback
+  // recreated the function, making cancellation impossible.
   useEffect(() => {
     if (!recognitionRef.current || !isRecording) return
-    
-    // Store pending language change
+
     pendingLanguageChangeRef.current = { source: sourceLanguage, target: targetLanguage }
-    
-    // Clear any existing timeout
+
     if (languageChangeTimeoutRef.current) {
       clearTimeout(languageChangeTimeoutRef.current)
     }
-    
-    // Debounce the language change
-    debouncedLanguageChange(sourceLanguage, targetLanguage)
-  }, [sourceLanguage, targetLanguage, isRecording, debouncedLanguageChange])
+
+    languageChangeTimeoutRef.current = setTimeout(() => {
+      handleLanguageChange(sourceLanguage, targetLanguage)
+    }, 500)
+
+    return () => {
+      if (languageChangeTimeoutRef.current) {
+        clearTimeout(languageChangeTimeoutRef.current)
+        languageChangeTimeoutRef.current = null
+      }
+    }
+  }, [sourceLanguage, targetLanguage, isRecording, handleLanguageChange])
 
   // Start recording with language change protection
   const startRecording = useCallback(async () => {

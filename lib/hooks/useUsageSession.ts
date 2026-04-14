@@ -243,14 +243,13 @@ export function useUsageSession(): UsageSessionReturn {
    * This eliminates race conditions between ping responses and SSE events.
    */
   const stopSession = useCallback(async () => {
-    // Guard against duplicate calls - check both flags and state
+    // Guard against concurrent calls only — do NOT guard on isActive.
+    // The session may have just been created (startUsageSession is fire-and-forget)
+    // and the SSE session:created event may not have arrived yet, so isActive can
+    // still be false even though the server has an open session. The server API is
+    // idempotent: stopping an already-closed session is a safe no-op.
     if (isStoppingRef.current) {
       console.log('[useUsageSession] Stop already in progress, ignoring duplicate call')
-      return
-    }
-    
-    if (!isActive) {
-      console.log('[useUsageSession] Session not active, ignoring stop call')
       return
     }
 
@@ -277,12 +276,13 @@ export function useUsageSession(): UsageSessionReturn {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error('[useUsageSession] Error stopping session:', err)
       setError(errorMessage)
-      // Revert status on error
-      setStatus(isActive ? 'active' : 'idle')
+      // Revert to idle on error; if the session is still active the SSE
+      // heartbeat will push the correct state back shortly.
+      setStatus('idle')
     } finally {
       isStoppingRef.current = false
     }
-  }, [isActive])
+  }, [])
 
   /**
    * Connect to SSE on mount, disconnect on unmount
