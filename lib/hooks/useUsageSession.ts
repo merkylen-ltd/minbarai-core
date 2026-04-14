@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { 
-  UsageSessionReturn, 
-  SessionStatus, 
+import type {
+  UsageSessionReturn,
+  SessionStatus,
   SSEEvent,
-  UsageSessionAPIResponse 
+  UsageSessionAPIResponse
 } from '@/types/usage-session'
+import { PING_INTERVAL_MS } from '@/lib/usage/constants'
 
 /**
  * Unified Usage Session Hook
@@ -43,6 +44,7 @@ export function useUsageSession(): UsageSessionReturn {
   const reconnectAttemptsRef = useRef(0)
   const maxReconnectAttempts = 5
   const baseReconnectDelay = 1000
+  const keepalivePingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   /**
    * Process SSE events and update state
@@ -306,6 +308,43 @@ export function useUsageSession(): UsageSessionReturn {
           type: 'application/json',
         })
         navigator.sendBeacon('/api/usage/ping', blob)
+      }
+    }
+  }, [isActive])
+
+  /**
+   * Keepalive ping interval — renews last_seen_at while a session is active.
+   *
+   * The server marks a session 'expired' if it receives no ping for TTL_SECONDS
+   * (180 s). Without this interval, the client only sends one ping on start,
+   * so any session longer than 3 minutes would auto-expire mid-recording.
+   *
+   * Uses a bare fetch (not startSession) to bypass the isActive guard in
+   * startSession, which would silently drop the request.
+   */
+  useEffect(() => {
+    if (!isActive) {
+      if (keepalivePingIntervalRef.current) {
+        clearInterval(keepalivePingIntervalRef.current)
+        keepalivePingIntervalRef.current = null
+      }
+      return
+    }
+
+    keepalivePingIntervalRef.current = setInterval(() => {
+      fetch('/api/usage/ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true }),
+      }).catch((err) => {
+        console.warn('[useUsageSession] Keepalive ping failed:', err)
+      })
+    }, PING_INTERVAL_MS)
+
+    return () => {
+      if (keepalivePingIntervalRef.current) {
+        clearInterval(keepalivePingIntervalRef.current)
+        keepalivePingIntervalRef.current = null
       }
     }
   }, [isActive])
