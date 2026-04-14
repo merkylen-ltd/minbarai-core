@@ -86,12 +86,16 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
   // Add Space key handler for start/stop recording
   useEffect(() => {
     const handleSpaceKey = (event: KeyboardEvent) => {
-      // Only handle when not typing in input fields
+      // Only handle when not typing in input fields or focused on a button
+      // (button click + keydown would both fire otherwise)
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return
       }
+      if (event.target instanceof HTMLButtonElement) {
+        return
+      }
 
-      if (event.key === ' ') {
+      if (event.key === ' ' && !event.repeat) {
         event.preventDefault()
         if (speechRecognition.isRecording) {
           speechRecognition.stopRecording()
