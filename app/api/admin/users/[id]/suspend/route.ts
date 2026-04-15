@@ -43,13 +43,10 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Update user subscription status to 'suspended'
-    // Note: You may want to add a specific 'suspended' status to your users table
-    // For now, we'll use subscription_status or add metadata
     const { error: updateError } = await adminClient
       .from('users')
       .update({
-        subscription_status: 'suspended',
+        is_suspended: true,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId)

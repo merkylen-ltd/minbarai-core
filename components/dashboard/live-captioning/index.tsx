@@ -81,6 +81,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
       
       liveCaptioning.showAlert('Session Stopped', message, { variant: 'warning', buttonText: 'OK' })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speechRecognition.isRecording, liveCaptioning.usageStatus, speechRecognition.stopRecording, liveCaptioning.showAlert])
 
   // Add Space key handler for start/stop recording
@@ -109,6 +110,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     return () => {
       document.removeEventListener('keydown', handleSpaceKey)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speechRecognition.isRecording, speechRecognition.startRecording, speechRecognition.stopRecording])
 
   // Auto-scroll when text size changes or content updates
@@ -120,6 +122,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
         typingAnimation.scrollToBottom(targetScrollRef)
       }, 100)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveCaptioning.textSize, liveCaptioning.sourceText, typingAnimation.completedTranslations, typingAnimation.scrollToBottom])
 
   // Mouse wheel handler for font size control in fullscreen mode
@@ -140,6 +143,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     if (newSize !== liveCaptioning.textSize) {
       liveCaptioning.setTextSize(newSize)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveCaptioning.isFullscreen, liveCaptioning.textSize, liveCaptioning.setTextSize])
 
   // Clear transcription handler

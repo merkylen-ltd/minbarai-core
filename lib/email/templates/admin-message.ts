@@ -18,7 +18,7 @@ export function generateAdminMessageHtml(
 ): string {
   // Escape HTML in message to prevent injection
   const escapedMessage = escapeHtml(message)
-  const sender = senderName ? `${senderName} from ` : ''
+  const sender = senderName ? `${escapeHtml(senderName)} from ` : ''
   
   return `
     <!DOCTYPE html>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import StatusBadge from '@/components/admin/StatusBadge'
 import { format } from 'date-fns'
@@ -20,18 +20,18 @@ export default function UserDetailPage() {
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
 
-  const loadUserData = () => {
+  const loadUserData = useCallback(() => {
     if (!userId) return
-    
+
     fetch(`/api/admin/users/${userId}`)
       .then(res => res.json())
       .then(setData)
       .finally(() => setLoading(false))
-  }
+  }, [userId])
 
   useEffect(() => {
     loadUserData()
-  }, [userId])
+  }, [loadUserData])
 
   const handleSyncStripe = async () => {
     setSyncing(true)
@@ -99,7 +99,7 @@ export default function UserDetailPage() {
         <div className="flex items-center space-x-3">
           <button
             onClick={handleSyncStripe}
-            disabled={syncing || !data.user.stripe_subscription_id}
+            disabled={syncing || !data.user.subscription_id}
             className="px-4 py-2 rounded-lg bg-accent-500 text-neutral-0 hover:bg-accent-400 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {syncing ? 'Syncing...' : '↻ Sync Stripe'}
@@ -165,7 +165,7 @@ export default function UserDetailPage() {
       <div className="bg-primary-700/30 border border-accent-500/20 rounded-lg p-6">
         <h2 className="text-neutral-0 font-display text-xl font-semibold mb-4">Quick Actions</h2>
         <div className="flex flex-wrap gap-3">
-          {data.user.subscription_status !== 'suspended' && (
+          {!data.user.is_suspended && (
             <button
               onClick={() => handleAction('suspend')}
               className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white font-medium hover:from-orange-600 hover:to-orange-700 transition-all duration-200 shadow-md hover:shadow-lg"
@@ -173,7 +173,7 @@ export default function UserDetailPage() {
               🚫 Suspend Account
             </button>
           )}
-          {data.user.subscription_status === 'suspended' && (
+          {data.user.is_suspended && (
             <button
               onClick={() => handleAction('activate')}
               className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white font-medium hover:from-green-600 hover:to-green-700 transition-all duration-200 shadow-md hover:shadow-lg"
@@ -187,9 +187,9 @@ export default function UserDetailPage() {
           >
               📧 Send Password Reset Email
           </button>
-          {data.user.stripe_subscription_id && (
+          {data.user.subscription_id && (
             <a
-              href={`https://dashboard.stripe.com/subscriptions/${data.user.stripe_subscription_id}`}
+              href={`https://dashboard.stripe.com/subscriptions/${data.user.subscription_id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium hover:from-purple-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg inline-flex items-center gap-2"

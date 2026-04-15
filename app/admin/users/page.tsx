@@ -106,7 +106,6 @@ export default function UsersPage() {
             <option value="canceled">Canceled</option>
             <option value="incomplete">Incomplete</option>
             <option value="past_due">Past Due</option>
-            <option value="suspended">Suspended</option>
           </select>
         </div>
       </div>

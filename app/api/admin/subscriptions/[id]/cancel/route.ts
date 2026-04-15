@@ -34,7 +34,7 @@ export async function POST(
     // Get user subscription data
     const { data: userData, error: fetchError } = await adminClient
       .from('users')
-      .select('stripe_subscription_id, subscription_period_end')
+      .select('subscription_id, subscription_period_end')
       .eq('id', userId)
       .single()
 
@@ -42,7 +42,7 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    if (!userData.stripe_subscription_id) {
+    if (!userData.subscription_id) {
       return NextResponse.json({ error: 'No active subscription found' }, { status: 404 })
     }
 
@@ -50,9 +50,9 @@ export async function POST(
     if (stripe) {
       try {
         if (cancelImmediately) {
-          await stripe.subscriptions.cancel(userData.stripe_subscription_id)
+          await stripe.subscriptions.cancel(userData.subscription_id)
         } else {
-          await stripe.subscriptions.update(userData.stripe_subscription_id, {
+          await stripe.subscriptions.update(userData.subscription_id, {
             cancel_at_period_end: true,
           })
         }

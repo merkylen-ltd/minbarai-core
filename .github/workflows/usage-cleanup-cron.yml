@@ -1,0 +1,40 @@
+name: Usage Session Cleanup
+
+# Runs every 5 minutes to expire stale sessions and cap over-limit ones.
+# Without this, active sessions that lose their connection are never closed
+# and usage minutes keep accumulating indefinitely.
+#
+# Required GitHub Secrets:
+#   CRON_SECRET  — must match the CRON_SECRET env var on the Cloud Run service
+#   SITE_URL     — production URL, e.g. https://minbarai.com
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes
+  workflow_dispatch:          # allow manual trigger from GitHub Actions UI
+
+jobs:
+  cleanup:
+    name: Expire stale usage sessions
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Call cleanup endpoint
+        run: |
+          HTTP_STATUS=$(curl -s -o /tmp/cleanup_response.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.SITE_URL }}/api/usage/cleanup")
+
+          echo "HTTP status: $HTTP_STATUS"
+          cat /tmp/cleanup_response.json
+
+          # Fail the step (and notify via GitHub) on non-2xx
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "❌ Cleanup endpoint returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "✅ Cleanup completed"

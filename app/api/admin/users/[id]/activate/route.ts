@@ -35,7 +35,7 @@ export async function POST(
     // Get user data first
     const { data: userData, error: fetchError } = await adminClient
       .from('users')
-      .select('email, subscription_status, subscription_period_end')
+      .select('email')
       .eq('id', userId)
       .single()
 
@@ -43,20 +43,11 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Determine new status based on subscription period
-    let newStatus = 'active'
-    if (userData.subscription_period_end) {
-      const periodEnd = new Date(userData.subscription_period_end)
-      if (periodEnd < new Date()) {
-        newStatus = 'expired'
-      }
-    }
-
-    // Update user subscription status
+    // Clear the admin suspension flag — leave subscription_status to Stripe
     const { error: updateError } = await adminClient
       .from('users')
       .update({
-        subscription_status: newStatus,
+        is_suspended: false,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId)
@@ -75,7 +66,6 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: 'User activated successfully',
-      newStatus,
     })
   } catch (error) {
     console.error('[Admin API] Exception in POST /api/admin/users/[id]/activate:', error)

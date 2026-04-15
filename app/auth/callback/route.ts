@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const { searchParams, origin } = new URL(request.url)
     
     // Rate limiting check using the new utility
-    const rateLimitResult = checkRateLimit(request as any, RATE_LIMIT_CONFIGS.OAUTH_CALLBACK)
+    const rateLimitResult = await checkRateLimit(request, RATE_LIMIT_CONFIGS.OAUTH_CALLBACK)
     
     if (!rateLimitResult.allowed) {
       console.error(`Auth callback: Rate limit exceeded`)

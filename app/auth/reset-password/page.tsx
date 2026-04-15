@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { validatePassword } from '@/lib/auth/password-strength'
 import { Button } from '@/components/ui/button'
 import { Mic, Eye, EyeOff, CheckCircle, AlertCircle } from 'lucide-react'
 
@@ -67,8 +68,9 @@ function ResetPasswordContent() {
       return
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long')
+    const { isValid, errors: validationErrors } = validatePassword(password)
+    if (!isValid) {
+      setError(validationErrors[0])
       setLoading(false)
       return
     }
@@ -200,7 +202,7 @@ function ResetPasswordContent() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent pr-12"
                 placeholder="Enter your new password"
-                minLength={6}
+                minLength={8}
               />
               <button
                 type="button"
@@ -226,7 +228,7 @@ function ResetPasswordContent() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent pr-12"
                 placeholder="Confirm your new password"
-                minLength={6}
+                minLength={8}
               />
               <button
                 type="button"

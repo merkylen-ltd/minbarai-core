@@ -169,15 +169,13 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                 <span>Dashboard</span>
               </Link>
               
-              {variant === 'dashboard' && (
-                <Link
-                  href="/dashboard/billing"
-                  className="flex items-center space-x-2 text-neutral-400 hover:text-white transition-colors text-sm"
-                >
-                  <CreditCard className="h-4 w-4" />
-                  <span>Billing</span>
-                </Link>
-              )}
+              <Link
+                href="/dashboard/billing"
+                className="flex items-center space-x-2 text-neutral-400 hover:text-white transition-colors text-sm"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span>Billing</span>
+              </Link>
               
               {/* Admin Panel Link - Only show for admin users */}
               {isAdmin && variant !== 'landing' && (
@@ -269,16 +267,14 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                     Dashboard
                   </Link>
                   
-                  {variant === 'dashboard' && (
-                    <Link
-                      href="/dashboard/billing"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className="text-neutral-50 hover:text-accent-400 hover:bg-primary-600/50 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 min-h-[44px] flex items-center"
-                    >
-                      <CreditCard className="h-4 w-4 inline mr-2" />
-                      Billing
-                    </Link>
-                  )}
+                  <Link
+                    href="/dashboard/billing"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="text-neutral-50 hover:text-accent-400 hover:bg-primary-600/50 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 min-h-[44px] flex items-center"
+                  >
+                    <CreditCard className="h-4 w-4 inline mr-2" />
+                    Billing
+                  </Link>
                   
                   {/* Admin Panel Link - Mobile */}
                   {isAdmin && variant !== 'landing' && (

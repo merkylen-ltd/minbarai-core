@@ -282,6 +282,7 @@ async function createPublicUser(userId, email) {
       subscription_id: `sub_${email.replace('@', '_').replace('.', '_')}_plan`,
       customer_id: `cus_${email.replace('@', '_').replace('.', '_')}`,
       session_limit_minutes: 180,
+      is_suspended: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }, {

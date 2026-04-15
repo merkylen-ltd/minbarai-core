@@ -285,7 +285,23 @@ describe('sendDisputeAlertEmail — fan-out to ADMIN_EMAILS', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 4. Resend API error handling
+// 4. Unconfigured Resend client (RESEND_API_KEY missing)
+// ---------------------------------------------------------------------------
+
+describe('Email service — unconfigured client', () => {
+  it('returns success:false with config error when RESEND_API_KEY is missing', async () => {
+    process.env.RESEND_API_KEY = ''
+    jest.resetModules()
+    const { sendWelcomeEmail: send } = await import('@/lib/email/resend')
+
+    const result = await send('user@example.com')
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/not configured|RESEND_API_KEY/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5. Resend API error handling
 // ---------------------------------------------------------------------------
 
 describe('Email service — Resend API errors', () => {

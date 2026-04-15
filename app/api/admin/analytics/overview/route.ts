@@ -77,9 +77,9 @@ export async function GET(request: NextRequest) {
         // Get all active subscriptions
         const { data: usersWithSubs } = await adminClient
           .from('users')
-          .select('stripe_subscription_id')
+          .select('subscription_id')
           .eq('subscription_status', 'active')
-          .not('stripe_subscription_id', 'is', null)
+          .not('subscription_id', 'is', null)
 
         if (usersWithSubs) {
           // Store stripe reference to ensure TypeScript knows it's not null in the closure
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
             usersWithSubs.map(async (userData) => {
               try {
                 const subscription = await stripeClient.subscriptions.retrieve(
-                  userData.stripe_subscription_id!
+                  userData.subscription_id!
                 )
                 const amount = subscription.items.data[0]?.price.unit_amount || 0
                 return amount / 100 // Convert from cents

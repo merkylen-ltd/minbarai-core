@@ -287,6 +287,9 @@ export const useSpeechRecognition = ({
         languageChangeTimeoutRef.current = null
       }
     }
+    // Intentionally mount-only: adding callback deps would destroy/recreate the
+    // VoiceFlow recognition instance on every render. Callbacks are stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted])
 
   // Language change handler for recording sessions
@@ -692,11 +695,12 @@ export const useSpeechRecognition = ({
   }, [
     isRecording,
     isStarting,
-    isValidForTranslation, 
-    sessionData, 
-    totalUsageMinutes, 
-    sourceLanguage, 
-    targetLanguage, 
+    isLanguageChanging,
+    isValidForTranslation,
+    sessionData,
+    totalUsageMinutes,
+    sourceLanguage,
+    targetLanguage,
     translationVariant,
     cachedPrompt,
     isPromptValid,
