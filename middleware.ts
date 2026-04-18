@@ -4,6 +4,20 @@ import { isValidSubscriptionStatus, isCancelledSubscriptionActive } from '@/lib/
 import { securityHeadersMiddleware } from '@/lib/auth/security-headers'
 import { isAdminUser } from '@/lib/auth/admin'
 
+// GRACE PERIOD LOGIC:
+// Cancelled subscriptions continue to work until subscription_period_end passes.
+// This grace period allows users to have uninterrupted access after cancellation.
+// See lib/subscription.ts for CANCELLED_GRACE_PERIOD_DAYS constant.
+//
+// CACHING BEHAVIOR:
+// Subscription state is not re-checked on every request for authenticated users
+// already on /dashboard. The user's session cookie is the source of truth until
+// it refreshes. This means:
+// 1. If a subscription expires while a user is actively browsing, they won't be
+//    immediately logged out (they'll be redirected on next navigation).
+// 2. If a subscription is reactivated, the user might need to refresh to see changes.
+// This is acceptable for the UX vs. the cost of querying the database on every request.
+
 // Type for user data we need from the database
 interface UserSubscriptionData {
   subscription_status: string | null

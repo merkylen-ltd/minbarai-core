@@ -11,15 +11,26 @@ const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
 
 /**
  * Stale Session Cleanup API
- * 
+ *
  * This endpoint should be called periodically (e.g., every 5 minutes via cron)
  * to clean up sessions that:
  * 1. Have exceeded their TTL (no ping for 3+ minutes)
  * 2. Have hit their max_end_at cap
- * 
+ *
  * This is critical for accurate usage tracking - without cleanup,
  * stale sessions would never be closed and usage wouldn't be recorded.
- * 
+ *
+ * SETUP REQUIRED:
+ * This endpoint is triggered by .github/workflows/usage-cleanup-cron.yml.
+ * Configure these GitHub Actions secrets in the repo settings:
+ *   - CRON_SECRET: Match the CRON_SECRET env var on Cloud Run production service
+ *   - SITE_URL: Production URL (e.g., https://minbarai.com)
+ *
+ * Without these secrets configured, the cron will fail silently.
+ * Verify cron is running by:
+ *   1. Checking GitHub Actions runs: github.com/YourRepo/actions
+ *   2. Calling GET /api/usage/cleanup in production (requires auth header)
+ *
  * Usage (both methods require Authorization: Bearer <CRON_SECRET>):
  * - POST /api/usage/cleanup - Run cleanup
  * - GET /api/usage/cleanup - Check stale session count without running cleanup

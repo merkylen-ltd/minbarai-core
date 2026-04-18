@@ -19,21 +19,24 @@ export function getAdminEmails(): string[] {
 
 /**
  * Check if an email address belongs to an admin user
- * @param email - The email address to check
+ * @param email - The email address to check (should be from Supabase Auth, which normalizes to lowercase)
  * @returns True if the email is in the admin whitelist, false otherwise
  */
 export function isAdminUser(email: string | null | undefined): boolean {
   if (!email) {
     return false
   }
-  
+
   const adminEmails = getAdminEmails()
-  
+
   if (adminEmails.length === 0) {
     console.warn('[Admin Auth] No admin emails configured in ADMIN_EMAILS environment variable')
     return false
   }
-  
+
+  // Email normalization: Supabase Auth always stores emails in lowercase,
+  // and the ADMIN_EMAILS config is normalized to lowercase (line 16).
+  // This ensures safe comparison regardless of how the email was originally provided.
   const normalizedEmail = email.trim().toLowerCase()
   return adminEmails.includes(normalizedEmail)
 }

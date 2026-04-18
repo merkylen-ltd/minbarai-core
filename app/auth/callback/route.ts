@@ -100,7 +100,7 @@ export async function GET(request: Request) {
             } else {
               // New user, ensure they exist in users table and redirect to subscribe
               console.log(`Auth callback: New user signing up - creating user record`)
-              
+
               const { error: upsertError } = await supabase
                 .from('users')
                 .upsert({
@@ -111,11 +111,20 @@ export async function GET(request: Request) {
                 }, {
                   onConflict: 'id'  // Handle race conditions
                 })
-              
+
               if (upsertError) {
                 console.error(`Auth callback: Error creating user record:`, upsertError)
                 // If user creation fails, redirect to error page instead of continuing
                 return NextResponse.redirect(`${origin}/auth/auth-code-error?error=user_creation_failed&description=${encodeURIComponent('Failed to create user account. Please contact support.')}`)
+              }
+
+              // SECURITY: Re-validate email confirmation after upsert to prevent race condition
+              // where email_confirmed_at could be cleared between initial check and upsert
+              const { data: { user: revalidatedUser } } = await supabase.auth.getUser()
+
+              if (!revalidatedUser?.email_confirmed_at) {
+                console.error(`Auth callback: Email confirmation was cleared during signup for user ${user.email}`)
+                return NextResponse.redirect(`${origin}/auth/auth-code-error?error=email_confirmation_lost&description=${encodeURIComponent('Email confirmation was lost. Please try signing up again.')}`)
               }
 
               // Send welcome email (fire-and-forget — must not block the redirect)

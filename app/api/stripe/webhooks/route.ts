@@ -49,49 +49,41 @@ function getSupabaseAdmin() {
 
 // Webhook security configuration
 const WEBHOOK_MAX_SIZE = 1024 * 1024 // 1MB max payload size
-const WEBHOOK_RATE_LIMIT_WINDOW = 60 * 1000 // 1 minute
+const WEBHOOK_RATE_LIMIT_WINDOW = 60 // 1 minute in seconds
 const WEBHOOK_RATE_LIMIT_MAX_REQUESTS = 100 // 100 requests per minute per IP
 
-// In-memory rate limiting for webhooks
-// Note: In serverless, this resets on cold starts, but provides basic protection
-// For production distributed systems, consider using Redis or database-backed rate limiting
-const webhookRateLimitMap = new Map<string, { count: number; resetTime: number }>()
-
 /**
- * Check webhook rate limit for an IP
- * Cleans up expired entries on each check to prevent memory growth
+ * Check webhook rate limit for an IP using database-backed rate limiting.
+ * Uses RPC function check_and_record_webhook_attempt() for atomic operation
+ * that persists across Cloud Run cold starts.
  */
-function checkWebhookRateLimit(ip: string): boolean {
-  const now = Date.now()
-  
-  // Clean up expired entries (probabilistic to reduce overhead)
-  if (Math.random() < 0.1) {
-    const entries = Array.from(webhookRateLimitMap.entries())
-    for (let i = 0; i < entries.length; i++) {
-      const [key, data] = entries[i]
-      if (now > data.resetTime) {
-        webhookRateLimitMap.delete(key)
-      }
+async function checkWebhookRateLimit(ip: string): Promise<boolean> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { data, error } = await supabaseAdmin
+      .rpc('check_and_record_webhook_attempt', {
+        p_ip_address: ip,
+        p_max_requests: WEBHOOK_RATE_LIMIT_MAX_REQUESTS,
+        p_window_seconds: WEBHOOK_RATE_LIMIT_WINDOW
+      })
+
+    if (error) {
+      console.error(`Rate limit check failed for IP ${ip}:`, error)
+      // On error, allow the request to pass through (fail open, not closed)
+      return true
     }
-  }
-  
-  const record = webhookRateLimitMap.get(ip)
-  
-  if (!record || now > record.resetTime) {
-    // New window - reset count
-    webhookRateLimitMap.set(ip, {
-      count: 1,
-      resetTime: now + WEBHOOK_RATE_LIMIT_WINDOW
-    })
+
+    if (!data || data.length === 0) {
+      console.error(`No rate limit data returned for IP ${ip}`)
+      return true
+    }
+
+    return data[0].is_allowed
+  } catch (error) {
+    console.error(`Error in checkWebhookRateLimit for IP ${ip}:`, error)
+    // On error, allow the request to pass through
     return true
   }
-  
-  if (record.count >= WEBHOOK_RATE_LIMIT_MAX_REQUESTS) {
-    return false
-  }
-  
-  record.count++
-  return true
 }
 
 /**
@@ -298,7 +290,8 @@ export async function POST(request: Request) {
   }
   
   // Security: Rate limiting
-  if (!checkWebhookRateLimit(clientIP)) {
+  const isRateLimitAllowed = await checkWebhookRateLimit(clientIP)
+  if (!isRateLimitAllowed) {
     console.warn(`Webhook rate limit exceeded for IP: ${clientIP}`)
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
