@@ -3,15 +3,6 @@
 import { useState } from 'react'
 import { Eye, EyeOff, Copy, Check, Zap, RotateCcw, Clock, Calendar, ExternalLink } from 'lucide-react'
 
-interface CreateAccountForm {
-  email: string
-  password: string
-  sessionLimitMinutes: number
-  withSubscription: boolean
-  expiresInDays: number
-  note: string
-}
-
 interface BulkSeedForm {
   emailPrefix: string
   emailDomain: string
@@ -38,17 +29,6 @@ const generatePassword = (): string => {
 }
 
 export default function MarketingToolsPage() {
-  const [createForm, setCreateForm] = useState<CreateAccountForm>({
-    email: '',
-    password: '',
-    sessionLimitMinutes: 180,
-    withSubscription: false,
-    expiresInDays: 30,
-    note: ''
-  })
-  const [createLoading, setCreateLoading] = useState(false)
-  const [createResult, setCreateResult] = useState<any>(null)
-  const [showPassword, setShowPassword] = useState(false)
   const [showBulkPassword, setShowBulkPassword] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -78,48 +58,9 @@ export default function MarketingToolsPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleGeneratePassword = (target: 'create' | 'bulk') => {
+  const handleGeneratePassword = (target: 'bulk') => {
     const newPassword = generatePassword()
-    if (target === 'create') {
-      setCreateForm({ ...createForm, password: newPassword })
-    } else {
-      setBulkForm({ ...bulkForm, password: newPassword })
-    }
-  }
-
-  const handleCreateAccount = async () => {
-    if (!createForm.email || !createForm.password) {
-      setCreateResult({ error: 'Email and password required' })
-      return
-    }
-
-    setCreateLoading(true)
-    setCreateResult(null)
-
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(createForm)
-      })
-
-      const data = await res.json()
-
-      if (data.success) {
-        setCreateResult({
-          success: true,
-          ...data,
-          password: createForm.password
-        })
-        setCreateForm({ email: '', password: '', sessionLimitMinutes: 180, withSubscription: false, expiresInDays: 30, note: '' })
-      } else {
-        setCreateResult({ error: data.error || 'Failed to create account' })
-      }
-    } catch (err) {
-      setCreateResult({ error: 'Network error' })
-    } finally {
-      setCreateLoading(false)
-    }
+    setBulkForm({ ...bulkForm, password: newPassword })
   }
 
   const handleBulkSeed = async () => {
@@ -263,142 +204,13 @@ export default function MarketingToolsPage() {
       {/* Page Header */}
       <div>
         <h1 className="text-4xl font-display font-bold text-neutral-0">Marketing Tools</h1>
-        <p className="text-neutral-400 mt-2">Create demo accounts and manage test users</p>
+        <p className="text-neutral-400 mt-2">Bulk create demo accounts and manage test users</p>
       </div>
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column: Create Accounts */}
+        {/* Left Column: Bulk Seed Accounts */}
         <div className="space-y-6">
-          {/* Create Single Account */}
-          <div className="bg-primary-800/30 border border-accent-500/10 rounded-xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-neutral-0 mb-5">Create Account</h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-neutral-400 text-sm font-medium mb-2">Email</label>
-                <input
-                  type="email"
-                  placeholder="demo@example.com"
-                  value={createForm.email}
-                  onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-primary-800/50 border border-neutral-700 rounded-lg text-neutral-0 placeholder-neutral-600 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-neutral-400 text-sm font-medium mb-2">Password</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="Min 8 characters"
-                      value={createForm.password}
-                      onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
-                      className="w-full px-4 py-2.5 bg-primary-800/50 border border-neutral-700 rounded-lg text-neutral-0 placeholder-neutral-600 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 transition-all pr-10"
-                    />
-                    <button
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => handleGeneratePassword('create')}
-                    className="px-4 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-neutral-300 rounded-lg transition-colors"
-                    title="Generate secure password"
-                  >
-                    <Zap className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-neutral-400 text-sm font-medium mb-2">Session Limit (min)</label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="10080"
-                    value={createForm.sessionLimitMinutes}
-                    onChange={(e) => setCreateForm({ ...createForm, sessionLimitMinutes: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2.5 bg-primary-800/50 border border-neutral-700 rounded-lg text-neutral-0 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="flex items-center space-x-2 text-neutral-400 text-sm font-medium mb-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={createForm.withSubscription}
-                      onChange={(e) => setCreateForm({ ...createForm, withSubscription: e.target.checked })}
-                      className="w-4 h-4 rounded"
-                    />
-                    <span>Subscription</span>
-                  </label>
-                  {createForm.withSubscription && (
-                    <input
-                      type="number"
-                      min="1"
-                      max="365"
-                      value={createForm.expiresInDays}
-                      onChange={(e) => setCreateForm({ ...createForm, expiresInDays: parseInt(e.target.value) })}
-                      className="w-full px-4 py-2.5 bg-primary-800/50 border border-neutral-700 rounded-lg text-neutral-0 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 transition-all"
-                      placeholder="Days"
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-neutral-400 text-sm font-medium mb-2">Note (optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Testing notes"
-                  value={createForm.note}
-                  onChange={(e) => setCreateForm({ ...createForm, note: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-primary-800/50 border border-neutral-700 rounded-lg text-neutral-0 placeholder-neutral-600 focus:outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500/30 transition-all"
-                />
-              </div>
-            </div>
-
-            <button
-              onClick={handleCreateAccount}
-              disabled={createLoading || !createForm.email || !createForm.password}
-              className="w-full mt-6 px-6 py-3 bg-accent-500 text-neutral-0 font-semibold rounded-lg hover:bg-accent-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {createLoading ? 'Creating...' : 'Create Account'}
-            </button>
-
-            {createResult && (
-              <div className={`mt-4 p-4 rounded-lg text-sm ${
-                createResult.success
-                  ? 'bg-green-500/10 border border-green-500/20 text-green-300'
-                  : 'bg-red-500/10 border border-red-500/20 text-red-300'
-              }`}>
-                {createResult.success ? (
-                  <div className="space-y-3">
-                    <p className="font-semibold">✓ Account created</p>
-                    <div className="space-y-2 text-xs font-mono bg-primary-900/30 p-3 rounded border border-neutral-700">
-                      <div>Email: {createResult.email}</div>
-                      <div className="flex items-center justify-between">
-                        <span>Password: {createResult.password}</span>
-                        <button
-                          onClick={() => handleCopyPassword(createResult.password)}
-                          className="text-accent-400 hover:text-accent-300"
-                        >
-                          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p>✗ {createResult.error}</p>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Bulk Seed Accounts */}
           <div className="bg-primary-800/30 border border-accent-500/10 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-neutral-0 mb-5">Bulk Create Accounts</h2>
