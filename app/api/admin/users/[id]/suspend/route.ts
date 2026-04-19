@@ -27,6 +27,12 @@ export async function POST(
     requireAdmin(user.email)
 
     const { id: userId } = await params
+
+    // Prevent self-suspension
+    if (user.id === userId) {
+      return NextResponse.json({ error: 'Cannot suspend your own account' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { reason, sendEmail = true } = body
 
@@ -61,6 +67,8 @@ export async function POST(
       const emailHtml = generateSuspensionEmailHtml(reason)
       await sendAdminEmail(userData.email, 'Account Suspended', emailHtml)
     }
+
+    console.log(`[Admin API] User ${user.email} suspended user ${userId} (${userData.email})${reason ? ` - Reason: ${reason}` : ''}`)
 
     return NextResponse.json({
       success: true,

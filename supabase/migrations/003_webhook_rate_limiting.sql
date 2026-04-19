@@ -64,6 +64,7 @@ DECLARE
   v_now TIMESTAMPTZ := now();
   v_window_end TIMESTAMPTZ;
   v_requests INTEGER;
+  v_allowed BOOLEAN;
 BEGIN
   v_window_end := v_now + (p_window_seconds || ' seconds')::INTERVAL;
 
@@ -85,16 +86,15 @@ BEGIN
 
   SELECT
     w2.request_count,
-    (w2.request_count <= p_max_requests),
-    (w2.window_start + (p_window_seconds || ' seconds')::INTERVAL)::TIMESTAMPTZ
-  INTO v_requests, NULL, NULL
+    (w2.request_count <= p_max_requests)
+  INTO v_requests, v_allowed
   FROM public.webhook_rate_limits w2
   WHERE w2.ip_address = p_ip_address;
 
   RETURN QUERY
   SELECT
     v_requests,
-    (v_requests <= p_max_requests),
+    v_allowed,
     (v_window_end)::TIMESTAMPTZ;
 END;
 $$;

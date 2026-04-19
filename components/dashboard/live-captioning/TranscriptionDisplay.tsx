@@ -14,17 +14,18 @@ interface TranscriptionDisplayProps {
   interimText: string
   sourceConfig: LanguageConfig
   sourceScrollRef: React.RefObject<HTMLDivElement>
-  
+
   // Target panel
   completedTranslations: string
   typingText: string
   targetConfig: LanguageConfig
   targetScrollRef: React.RefObject<HTMLDivElement>
-  
+
   // Layout
   textSize: number
   isFullscreen: boolean
   fullscreenRef: React.RefObject<HTMLDivElement>
+  isRecording?: boolean
   onWheel?: (e: WheelEvent) => void
 }
 
@@ -41,6 +42,7 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
   textSize,
   isFullscreen,
   fullscreenRef,
+  isRecording = false,
   onWheel
 }) => {
   // Add wheel event listener when in fullscreen mode
@@ -145,29 +147,40 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
             
             <div
               ref={targetScrollRef}
-              className={`${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : showSourcePanel ? 'h-96 overflow-y-auto' : 'h-[600px] overflow-y-auto'} p-4 bg-white/5 rounded-lg border border-white/10 leading-relaxed custom-scrollbar ${
+              className={`${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : showSourcePanel ? 'h-96 overflow-y-auto' : 'h-[600px] overflow-y-auto'} p-4 bg-white/5 rounded-lg border border-white/10 leading-relaxed custom-scrollbar flex flex-col justify-center ${
                 getFontClass(targetConfig.family)
               }`}
-              style={{ 
+              style={{
                 direction: targetConfig.isRTL ? 'rtl' : 'ltr',
                 textAlign: targetConfig.isRTL ? 'right' : 'left',
                 fontSize: `${textSize}px`
               }}
             >
-              {/* Completed translations in white */}
-              {completedTranslations && (
-                <span className="text-white">{completedTranslations}</span>
+              {!completedTranslations && !typingText && isRecording ? (
+                <div className="text-center text-neutral-400 opacity-60" aria-live="polite" aria-label="Waiting for speech">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-accent-400 rounded-full animate-pulse"></div>
+                    <span>Waiting for speech…</span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Completed translations in white */}
+                  {completedTranslations && (
+                    <span className="text-white">{completedTranslations}</span>
+                  )}
+
+                  {/* Currently typing text in orange */}
+                  {typingText && (
+                    <span className="text-orange-500">{typingText}</span>
+                  )}
+
+                  {/* Blinking cursor */}
+                  <span className={`inline-block w-0.5 h-6 bg-accent-400 animate-blink-cursor ${
+                    targetConfig.isRTL ? 'mr-1' : 'ml-1'
+                  }`} />
+                </>
               )}
-              
-              {/* Currently typing text in orange */}
-              {typingText && (
-                <span className="text-orange-500">{typingText}</span>
-              )}
-              
-              {/* Blinking cursor */}
-              <span className={`inline-block w-0.5 h-6 bg-accent-400 animate-blink-cursor ${
-                targetConfig.isRTL ? 'mr-1' : 'ml-1'
-              }`} />
             </div>
           </div>
         </div>

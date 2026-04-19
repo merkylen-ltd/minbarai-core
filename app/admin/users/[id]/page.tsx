@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import StatusBadge from '@/components/admin/StatusBadge'
+import { ConfirmationDialog } from '@/components/ui/dialog'
 import { format } from 'date-fns'
+import { createClient } from '@/lib/supabase/client'
 
 interface UserDetails {
   user: any
@@ -19,6 +21,13 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [editingSessionLimit, setEditingSessionLimit] = useState(false)
+  const [newSessionLimit, setNewSessionLimit] = useState<number | null>(null)
+  const [actioning, setActioning] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   const loadUserData = useCallback(() => {
     if (!userId) return
@@ -28,6 +37,18 @@ export default function UserDetailPage() {
       .then(setData)
       .finally(() => setLoading(false))
   }, [userId])
+
+  useEffect(() => {
+    // Get current logged-in user from Supabase Auth
+    const supabase = createClient()
+    supabase.auth.getUser()
+      .then(({ data }: any) => {
+        if (data?.user) setCurrentUser(data.user)
+      })
+      .catch(() => {
+        // Ignore errors
+      })
+  }, [])
 
   useEffect(() => {
     loadUserData()
@@ -54,21 +75,86 @@ export default function UserDetailPage() {
     }
   }
 
-  const handleAction = async (action: string) => {
-    if (!confirm(`Are you sure you want to ${action} this user?`)) return
-    
+  const handleActionClick = (action: string) => {
+    setPendingAction(action)
+    setDialogOpen(true)
+  }
+
+  const handleActionConfirm = async () => {
+    if (!pendingAction) return
+
     try {
-      const res = await fetch(`/api/admin/users/${userId}/${action}`, { method: 'POST' })
+      const res = await fetch(`/api/admin/users/${userId}/${pendingAction}`, { method: 'POST' })
+      const result = await res.json()
+
+      if (result.success) {
+        if (pendingAction === 'delete') {
+          setActionMessage(`✓ User deleted successfully`)
+          setTimeout(() => router.push('/admin/users'), 2000)
+        } else {
+          setActionMessage(`✓ User ${pendingAction}d successfully`)
+          setTimeout(() => setActionMessage(null), 3000)
+          loadUserData()
+        }
+      } else {
+        setActionMessage(`✗ ${result.error || `Failed to ${pendingAction} user`}`)
+        setTimeout(() => setActionMessage(null), 3000)
+      }
+    } catch (err) {
+      setActionMessage(`✗ Error: ${err}`)
+      setTimeout(() => setActionMessage(null), 3000)
+    } finally {
+      setDialogOpen(false)
+      setPendingAction(null)
+    }
+  }
+
+
+  const handleResetUsage = async () => {
+    setActioning(true)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/reset-usage`, { method: 'POST' })
       const result = await res.json()
       
       if (result.success) {
-        alert(`User ${action}d successfully`)
+        setActionMessage(`✓ Cleared ${result.deletedCount} sessions`)
+        setTimeout(() => setActionMessage(null), 3000)
         loadUserData()
       } else {
-        alert(result.error || `Failed to ${action} user`)
+        setActionMessage(`✗ ${result.error || 'Failed to reset usage'}`)
       }
     } catch (err) {
-      alert(`Error: ${err}`)
+      setActionMessage('✗ Error resetting usage')
+    } finally {
+      setActioning(false)
+    }
+  }
+
+  const handleUpdateSessionLimit = async () => {
+    if (!newSessionLimit) return
+    
+    setActioning(true)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/session-limit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionLimitMinutes: newSessionLimit })
+      })
+      const result = await res.json()
+      
+      if (result.success) {
+        setActionMessage(`✓ Session limit updated to ${result.sessionLimitMinutes} min`)
+        setEditingSessionLimit(false)
+        setNewSessionLimit(null)
+        setTimeout(() => setActionMessage(null), 3000)
+        loadUserData()
+      } else {
+        setActionMessage(`✗ ${result.error || 'Failed to update'}`)
+      }
+    } catch (err) {
+      setActionMessage('✗ Error updating session limit')
+    } finally {
+      setActioning(false)
     }
   }
 
@@ -115,11 +201,27 @@ export default function UserDetailPage() {
 
       {syncMessage && (
         <div className={`p-3 rounded-lg ${
-          syncMessage.startsWith('✓') 
-            ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+          syncMessage.startsWith('✓')
+            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
             : 'bg-red-500/10 text-red-400 border border-red-500/20'
         }`}>
           {syncMessage}
+        </div>
+      )}
+
+      {actionMessage && (
+        <div className={`p-3 rounded-lg ${
+          actionMessage.startsWith('✓')
+            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+        }`}>
+          {actionMessage}
+        </div>
+      )}
+
+      {currentUser?.id === userId && (
+        <div className="p-4 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20">
+          ⚠️ You are viewing your own profile. Some administrative actions are disabled for safety.
         </div>
       )}
 
@@ -167,22 +269,24 @@ export default function UserDetailPage() {
         <div className="flex flex-wrap gap-3">
           {!data.user.is_suspended && (
             <button
-              onClick={() => handleAction('suspend')}
-              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white font-medium hover:from-orange-600 hover:to-orange-700 transition-all duration-200 shadow-md hover:shadow-lg"
+              onClick={() => handleActionClick('suspend')}
+              disabled={currentUser?.id === userId}
+              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 text-white font-medium hover:from-orange-600 hover:to-orange-700 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              title={currentUser?.id === userId ? 'Cannot suspend your own account' : ''}
             >
               🚫 Suspend Account
             </button>
           )}
           {data.user.is_suspended && (
             <button
-              onClick={() => handleAction('activate')}
+              onClick={() => handleActionClick('activate')}
               className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white font-medium hover:from-green-600 hover:to-green-700 transition-all duration-200 shadow-md hover:shadow-lg"
             >
               ✓ Reactivate Account
             </button>
           )}
           <button
-            onClick={() => handleAction('reset-password')}
+            onClick={() => handleActionClick('reset-password')}
             className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg"
           >
               📧 Send Password Reset Email
@@ -197,8 +301,74 @@ export default function UserDetailPage() {
               💳 View in Stripe Dashboard
             </a>
           )}
+          <button
+            onClick={handleResetUsage}
+            disabled={actioning}
+            className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium hover:from-yellow-600 hover:to-yellow-700 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50"
+          >
+            🔄 Reset Usage
+          </button>
+          {editingSessionLimit ? (
+            <div className="flex gap-2 items-center">
+              <input
+                type="number"
+                min="10"
+                max="10080"
+                defaultValue={data.user.session_limit_minutes}
+                onChange={(e) => setNewSessionLimit(parseInt(e.target.value))}
+                className="px-3 py-2.5 rounded-lg bg-primary-800/50 border border-accent-500/20 text-neutral-0 w-32"
+              />
+              <button
+                onClick={handleUpdateSessionLimit}
+                disabled={actioning || !newSessionLimit}
+                className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white font-medium hover:from-green-600 hover:to-green-700 disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingSessionLimit(false)}
+                className="px-4 py-2.5 rounded-lg bg-neutral-600 text-white font-medium hover:bg-neutral-700"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setEditingSessionLimit(true)
+                setNewSessionLimit(data.user.session_limit_minutes)
+              }}
+              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-cyan-600 text-white font-medium hover:from-cyan-600 hover:to-cyan-700 transition-all duration-200 shadow-md hover:shadow-lg"
+            >
+              ⏱️ Edit Limit ({data.user.session_limit_minutes}min)
+            </button>
+          )}
+          <button
+            onClick={() => handleActionClick('delete')}
+            disabled={currentUser?.id === userId}
+            className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-red-600 to-red-700 text-white font-medium hover:from-red-700 hover:to-red-800 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            title={currentUser?.id === userId ? 'Cannot delete your own account' : ''}
+          >
+            🗑️ Delete Account
+          </button>
         </div>
       </div>
+
+      {/* Action Confirmation Dialog */}
+      <ConfirmationDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title={pendingAction === 'delete' ? 'Delete Account Permanently' : 'Confirm Action'}
+        description={
+          pendingAction === 'delete'
+            ? `Are you sure you want to permanently delete this account? This will:\n• Delete the user profile\n• Cancel their Stripe subscription (if active)\n• Delete all usage sessions\n• This action CANNOT be undone.`
+            : `Are you sure you want to ${pendingAction} this user? This action cannot be undone.`
+        }
+        confirmText={pendingAction === 'delete' ? 'Delete Account' : 'Confirm'}
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={handleActionConfirm}
+      />
 
       <div className="bg-primary-700/30 border border-accent-500/20 rounded-lg p-6">
         <h2 className="text-neutral-0 font-display text-xl font-semibold mb-4">Recent Sessions</h2>

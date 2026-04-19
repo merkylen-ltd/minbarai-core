@@ -133,7 +133,7 @@ const CorePillars: React.FC = () => {
             </div>
           </div>
         </div>
-        <ScrollArrow targetSelector=".why-choose-us" delay="1s" />
+        <ScrollArrow targetSelector=".social-proof" delay="1s" />
       </div>
     </section>
   );

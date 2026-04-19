@@ -27,7 +27,7 @@ jest.mock('resend', () => ({
 import { Resend } from 'resend'
 import {
   sendWelcomeEmail,
-  sendReminderEmail,
+  sendUsageReminderEmail,
   sendPaymentFailedEmail,
   sendPaymentActionRequiredEmail,
   sendTrialEndingEmail,
@@ -150,11 +150,11 @@ describe('Email service — successful sends', () => {
     )
   })
 
-  it('sendReminderEmail uses "Reminder" in subject', async () => {
+  it('sendUsageReminderEmail uses "Session Time" in subject', async () => {
     mockResendOk()
-    await sendReminderEmail('user@example.com', 'Please update your billing info.')
+    await sendUsageReminderEmail('user@example.com')
     expect(getMockSend()).toHaveBeenCalledWith(
-      expect.objectContaining({ subject: expect.stringContaining('Reminder') })
+      expect.objectContaining({ subject: expect.stringContaining('Session Time') })
     )
   })
 })
@@ -179,9 +179,12 @@ describe('Email templates — HTML escaping', () => {
     expect(call.html).toContain('Alice &amp; Bob')
   })
 
-  it('escapes <img> in reminder email message', async () => {
+  it('escapes <img> in admin message email', async () => {
     mockResendOk()
-    await sendReminderEmail('user@example.com', '<img src=x onerror=alert(1)>')
+    const { sendAdminMessageEmail } = await import('@/lib/email/resend')
+    await sendAdminMessageEmail('user@example.com', {
+      message: '<img src=x onerror=alert(1)>'
+    })
     const call = getMockSend().mock.calls[0][0]
     expect(call.html).not.toContain('<img')
     expect(call.html).toContain('&lt;img')

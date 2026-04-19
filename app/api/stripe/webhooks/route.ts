@@ -10,6 +10,7 @@ import {
   sendRefundNotificationEmail,
   sendDisputeAlertEmail,
 } from '@/lib/email/resend'
+import { sendWelcomeEmailWithCredentials } from '@/lib/admin/account-creation'
 
 export const runtime = 'nodejs'
 
@@ -938,6 +939,33 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
     }
 
     console.log(`Admin invoice ${adminInvoiceId} activated for user ${adminInvoice.recipient_email}`)
+
+    // 6. Send welcome email with credentials
+    try {
+      const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId)
+      if (authUser?.user?.user_metadata?.temporary_password) {
+        const tempPassword = authUser.user.user_metadata.temporary_password
+        const dashboardUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'}/auth/signin`
+        
+        await sendWelcomeEmailWithCredentials({
+          email: adminInvoice.recipient_email,
+          organizationName: adminInvoice.org_name,
+          temporaryPassword: tempPassword,
+          dashboardUrl,
+        })
+        
+        // Clear temporary password from auth metadata
+        await supabaseAdmin.auth.admin.updateUserById(userId, {
+          user_metadata: {
+            ...authUser.user.user_metadata,
+            temporary_password: undefined,
+          },
+        })
+      }
+    } catch (emailError) {
+      console.error(`Failed to send welcome email for admin invoice ${adminInvoiceId}:`, emailError)
+      // Don't throw - welcome email failure shouldn't fail the webhook
+    }
   } catch (error) {
     console.error(`Error in handleAdminInvoicePaid:`, error)
     throw error

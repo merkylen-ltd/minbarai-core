@@ -16,6 +16,18 @@ import {
   generateDisputeAlertHtml,
   type DisputeAlertOptions,
 } from '@/lib/email/templates/billing'
+import {
+  generateWelcomeEmailHtml,
+  generateSubscriptionActivatedEmailHtml,
+  generateUsageReminderEmailHtml,
+  generateAdminMessageEmailHtml,
+  generatePasswordResetEmailHtml,
+  type WelcomeEmailOptions,
+  type SubscriptionActivatedOptions,
+  type UsageReminderOptions,
+  type AdminMessageOptions,
+  type PasswordResetOptions,
+} from '@/lib/email/templates/auth'
 
 // ---------------------------------------------------------------------------
 // Client initialisation
@@ -105,20 +117,45 @@ export async function sendAdminEmail(
 
 export async function sendWelcomeEmail(
   to: string,
-  name?: string
+  opts?: WelcomeEmailOptions | string
 ): Promise<{ success: boolean; id?: string; error?: string }> {
-  return sendAdminEmail(to, 'Welcome to MinbarAI', generateWelcomeEmailHtml(name))
+  // Support legacy string argument (firstName)
+  const options: WelcomeEmailOptions = typeof opts === 'string' ? { firstName: opts } : opts || {}
+  return sendAdminEmail(to, 'Welcome to MinbarAI', generateWelcomeEmailHtml(options))
+}
+
+export async function sendSubscriptionActivatedEmail(
+  to: string,
+  opts?: SubscriptionActivatedOptions
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  return sendAdminEmail(to, 'Your MinbarAI Subscription is Active ✓', generateSubscriptionActivatedEmailHtml(opts))
+}
+
+export async function sendPasswordResetEmail(
+  to: string,
+  resetLink: string
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  const opts: PasswordResetOptions = { resetLink }
+  return sendAdminEmail(to, 'Reset Your MinbarAI Password', generatePasswordResetEmailHtml(opts))
 }
 
 // ---------------------------------------------------------------------------
-// Admin / miscellaneous
+// Admin / Notifications
 // ---------------------------------------------------------------------------
 
-export async function sendReminderEmail(
+export async function sendAdminMessageEmail(
   to: string,
-  message: string
+  opts: AdminMessageOptions
 ): Promise<{ success: boolean; id?: string; error?: string }> {
-  return sendAdminEmail(to, 'Reminder from MinbarAI', generateReminderEmailHtml(message))
+  const subject = opts.subject || 'Message from MinbarAI'
+  return sendAdminEmail(to, subject, generateAdminMessageEmailHtml(opts))
+}
+
+export async function sendUsageReminderEmail(
+  to: string,
+  opts?: UsageReminderOptions
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  return sendAdminEmail(to, 'Session Time Remaining', generateUsageReminderEmailHtml(opts))
 }
 
 // ---------------------------------------------------------------------------
@@ -202,70 +239,4 @@ export async function sendDisputeAlertEmail(
   return { success: errors.length === 0, errors: errors.length > 0 ? errors : undefined }
 }
 
-// ---------------------------------------------------------------------------
-// HTML template helpers (inline — welcome + reminder)
-// ---------------------------------------------------------------------------
 
-function generateWelcomeEmailHtml(name?: string): string {
-  const greeting = name ? `Hello ${escapeHtml(name)}` : 'Hello'
-
-  return `<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to MinbarAI</title>
-  </head>
-  <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1F2937; background-color: #F9FAFB; margin: 0; padding: 0;">
-    <div style="max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-      <div style="background: linear-gradient(135deg, #0D1B20 0%, #1A2E35 50%, #2A4047 100%); padding: 40px 30px; text-align: center;">
-        <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0;">MinbarAI</h1>
-        <p style="color: #55a39a; font-size: 16px; margin: 10px 0 0 0;">Live Khutba Captioning and Translation</p>
-      </div>
-      <div style="padding: 40px 30px;">
-        <h2 style="color: #0D1B20; font-size: 24px; font-weight: 600; margin: 0 0 20px 0;">${greeting}!</h2>
-        <p style="color: #4B5563; font-size: 16px; margin: 0 0 20px 0;">Welcome to MinbarAI. We're excited to have you on board!</p>
-        <p style="color: #4B5563; font-size: 16px; margin: 0 0 20px 0;">Our platform provides real-time captioning and translation for Khutba sermons, making Islamic teachings more accessible to everyone.</p>
-        <p style="color: #4B5563; font-size: 16px; margin: 0 0 30px 0;">If you have any questions or need assistance, please don't hesitate to reach out to our support team.</p>
-        <div style="text-align: center;">
-          <a href="https://minbarai.com/dashboard" style="display: inline-block; background-color: #55a39a; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 500;">Get Started</a>
-        </div>
-      </div>
-      <div style="background-color: #F9FAFB; padding: 30px; text-align: center; border-top: 1px solid #E5E7EB;">
-        <p style="color: #6B7280; font-size: 14px; margin: 0;">© 2026 MinbarAI. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>`
-}
-
-function generateReminderEmailHtml(message: string): string {
-  return `<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reminder from MinbarAI</title>
-  </head>
-  <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1F2937; background-color: #F9FAFB; margin: 0; padding: 0;">
-    <div style="max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-      <div style="background: linear-gradient(135deg, #0D1B20 0%, #1A2E35 50%, #2A4047 100%); padding: 40px 30px; text-align: center;">
-        <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0;">MinbarAI</h1>
-        <p style="color: #55a39a; font-size: 16px; margin: 10px 0 0 0;">Reminder</p>
-      </div>
-      <div style="padding: 40px 30px;">
-        <h2 style="color: #0D1B20; font-size: 24px; font-weight: 600; margin: 0 0 20px 0;">You have a reminder</h2>
-        <div style="background-color: #F9FAFB; border-left: 4px solid #55a39a; padding: 20px; margin: 0 0 30px 0;">
-          <p style="color: #4B5563; font-size: 16px; margin: 0; white-space: pre-wrap;">${escapeHtml(message)}</p>
-        </div>
-        <div style="text-align: center;">
-          <a href="https://minbarai.com/dashboard" style="display: inline-block; background-color: #55a39a; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 500;">Go to Dashboard</a>
-        </div>
-      </div>
-      <div style="background-color: #F9FAFB; padding: 30px; text-align: center; border-top: 1px solid #E5E7EB;">
-        <p style="color: #6B7280; font-size: 14px; margin: 0;">© 2026 MinbarAI. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>`
-}

@@ -17,8 +17,6 @@ const VideoDemo: React.FC = () => {
         videoRef.current.pause();
       } else {
         videoRef.current.play();
-        // Ensure playback rate is set when starting playback
-        videoRef.current.playbackRate = 1.2;
       }
       setIsPlaying(!isPlaying);
     }
@@ -26,8 +24,7 @@ const VideoDemo: React.FC = () => {
 
   const handleVideoLoad = () => {
     if (videoRef.current) {
-      videoRef.current.playbackRate = 1.2; // Set playback speed to 1.2x
-      console.log('Video loaded, playback rate set to:', videoRef.current.playbackRate);
+      videoRef.current.playbackRate = 1.2;
     }
     setIsLoaded(true);
     setIsLoading(false);
@@ -35,14 +32,6 @@ const VideoDemo: React.FC = () => {
   };
 
   const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
-    console.error('Video loading error:', e);
-    const video = e.currentTarget;
-    console.error('Video error details:', {
-      error: video.error,
-      networkState: video.networkState,
-      readyState: video.readyState,
-      src: video.src
-    });
     setHasError(true);
     setErrorMessage('Failed to load demo video. Please check your connection or try again later.');
     setIsLoading(false);
@@ -50,30 +39,20 @@ const VideoDemo: React.FC = () => {
   };
 
   const handleVideoCanPlay = () => {
-    console.log('Video can play');
     setIsLoaded(true);
     setIsLoading(false);
     setHasError(false);
   };
 
-  // Ensure playback rate is set whenever the video element is available
-  useEffect(() => {
-    if (videoRef.current && isLoaded) {
-      videoRef.current.playbackRate = 1.2;
-      console.log('Playback rate set in useEffect:', videoRef.current.playbackRate);
-    }
-  }, [isLoaded]);
-
   // Add timeout for video loading
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (isLoading && !hasError) {
-        console.warn('Video loading timeout');
         setHasError(true);
         setErrorMessage('Video is taking too long to load. Please check your connection.');
         setIsLoading(false);
       }
-    }, 10000); // 10 second timeout
+    }, 10000);
 
     return () => clearTimeout(timeout);
   }, [isLoading, hasError]);
@@ -96,17 +75,12 @@ const VideoDemo: React.FC = () => {
             {/* Video Element */}
             <video
               ref={videoRef}
-              className="w-full h-auto rounded-2xl"
+              className="w-full h-auto rounded-2xl cursor-pointer"
               onLoadedData={handleVideoLoad}
               onCanPlay={handleVideoCanPlay}
               onError={handleVideoError}
-              onPlay={() => {
-                setIsPlaying(true);
-                // Set playback rate again when video starts playing
-                if (videoRef.current) {
-                  videoRef.current.playbackRate = 1.2;
-                }
-              }}
+              onClick={handlePlayPause}
+              onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onEnded={() => setIsPlaying(false)}
               controls={false}
@@ -187,9 +161,9 @@ const VideoDemo: React.FC = () => {
               </div>
             )}
 
-            {/* Video Controls Overlay */}
+            {/* Video Controls Overlay - Visible on mobile, hidden on hover on desktop */}
             {isPlaying && (
-              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between bg-black/40 backdrop-blur-sm rounded-lg p-3 opacity-0 hover:opacity-100 transition-opacity duration-300">
+              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between bg-black/40 backdrop-blur-sm rounded-lg p-3 sm:opacity-0 sm:hover:opacity-100 transition-opacity duration-300">
                 <button
                   onClick={handlePlayPause}
                   className="text-neutral-0 hover:text-accent-400 transition-colors duration-200"
@@ -206,7 +180,7 @@ const VideoDemo: React.FC = () => {
                 <div className="text-neutral-0 text-sm font-body">
                   MinbarAI Demo
                 </div>
-                <div className="w-6"></div> {/* Spacer for centering */}
+                <div className="w-6"></div>
               </div>
             )}
           </div>

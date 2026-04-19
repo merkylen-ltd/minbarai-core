@@ -31,6 +31,8 @@ export default function Subscribe() {
         const { data: { user } } = await supabase.auth.getUser()
 
         if (!user) {
+          // Redirect unauthenticated users to home page since pricing is hidden
+          router.push('/')
           setCheckingSubscription(false)
           return
         }
@@ -392,30 +394,6 @@ export default function Subscribe() {
             </div>
           )}
 
-          {/* Beta Benefits */}
-          <div className="mt-8 card">
-            <div className="text-center">
-              <h4 className="font-display font-heading text-fluid-lg text-accent-400 mb-4">Beta Program Benefits</h4>
-              <p className="text-neutral-50 text-fluid-sm mb-6">
-                Get early access to advanced features and help shape MinbarAI&apos;s future.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-primary-700/20 border border-accent-500/20 rounded-lg p-4">
-                  <div className="text-accent-400 text-fluid-sm font-body mb-2">Direct Feedback</div>
-                  <div className="text-neutral-50 text-fluid-xs">Direct line to development team</div>
-                </div>
-                <div className="bg-primary-700/20 border border-accent-500/20 rounded-lg p-4">
-                  <div className="text-accent-400 text-fluid-sm font-body mb-2">Early Access</div>
-                  <div className="text-neutral-50 text-fluid-xs">First access to new features</div>
-                </div>
-                <div className="bg-primary-700/20 border border-accent-500/20 rounded-lg p-4">
-                  <div className="text-accent-400 text-fluid-sm font-body mb-2">Special Pricing</div>
-                  <div className="text-neutral-50 text-fluid-xs">Exclusive beta discounts</div>
-                </div>
-              </div>
-            </div>
-          </div>
 
           {/* Support */}
           <div className="text-center mt-8">

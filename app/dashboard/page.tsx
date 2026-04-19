@@ -6,6 +6,8 @@ import DateTimeDisplay from '@/components/dashboard/DateTimeDisplay'
 import UnifiedHeader from '@/components/layout/UnifiedHeader'
 import LogoBrand from '@/components/ui/logo-brand'
 import Link from 'next/link'
+import StatusBadge from '@/components/admin/StatusBadge'
+import ErrorBoundary from '@/components/dashboard/ErrorBoundary'
 import { isValidSubscriptionStatus, getSubscriptionStatusMessage, getCancelledSubscriptionTimeRemaining, getCancelledSubscriptionEndDate, isCancelledSubscriptionActive } from '@/lib/subscription'
 
 export default async function Dashboard() {
@@ -18,7 +20,6 @@ export default async function Dashboard() {
 
   // Enforce authentication - redirect if no user
   if (!user) {
-    console.log('Dashboard - No authenticated user, redirecting to signin')
     redirect('/auth/signin')
   }
 
@@ -29,27 +30,20 @@ export default async function Dashboard() {
     .eq('id', user.id)
     .single()
 
-  console.log('Dashboard - User data:', userData)
-  console.log('Dashboard - Subscription status:', userData?.subscription_status)
-
   // Check subscription status
   if (!userData) {
-    console.log('Dashboard - User not found, redirecting to subscribe')
     redirect('/subscribe')
   }
 
   // Check if cancelled subscription period has expired
   if (userData.subscription_status === 'canceled' && !isCancelledSubscriptionActive(userData.subscription_status, userData.subscription_period_end)) {
-    console.log('Dashboard - Cancelled subscription period expired, redirecting to subscribe')
     redirect('/subscribe')
   }
 
   // Allow access for incomplete status (payment processing) with a warning
   if (userData.subscription_status === 'incomplete') {
-    console.log('Dashboard - Payment processing, allowing access with warning')
     // Continue to render dashboard but show processing status
   } else if (!isValidSubscriptionStatus(userData.subscription_status)) {
-    console.log('Dashboard - Subscription not valid, redirecting to subscribe')
     redirect('/subscribe')
   }
 
@@ -77,43 +71,13 @@ export default async function Dashboard() {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
               {/* Status Indicators */}
               <div className="flex items-center space-x-3">
-                <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg ${
-                  userData.subscription_status === 'incomplete'
-                    ? 'bg-yellow-500/10 border border-yellow-500/20'
-                    : userData.subscription_status === 'canceled'
-                    ? 'bg-orange-500/10 border border-orange-500/20'
-                    : 'bg-green-500/10 border border-green-500/20'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    userData.subscription_status === 'incomplete'
-                      ? 'bg-yellow-400'
-                      : userData.subscription_status === 'canceled'
-                      ? 'bg-orange-400'
-                      : 'bg-green-400'
-                  }`}></div>
-                  <span className={`text-sm font-body ${
-                    userData.subscription_status === 'incomplete'
-                      ? 'text-yellow-300'
-                      : userData.subscription_status === 'canceled'
-                      ? 'text-orange-300'
-                      : 'text-green-300'
-                  }`}>
-                    {userData.subscription_status === 'incomplete' ? 'Processing' : 
-                     userData.subscription_status === 'canceled' ? 'Subscription Cancelled' : 'Active Subscription'}
-                  </span>
-                </div>
+                <StatusBadge status={userData.subscription_status} />
               </div>
               
               {/* Date and Time Display */}
               <DateTimeDisplay />
             </div>
             
-            {/* Beta Notice */}
-            <div className="bg-accent-500/10 border border-accent-500/20 rounded-lg p-3 mb-4">
-              <p className="text-accent-300 text-sm">
-                <strong>Beta Notice:</strong> You're using the beta version of MinbarAI. Some features may be experimental or limited. We appreciate your feedback as we continue to improve the service.
-              </p>
-            </div>
 
             {/* Cancelled Subscription Info - Only show if cancelled */}
             {userData.subscription_status === 'canceled' && isCancelledSubscriptionActive(userData.subscription_status, userData.subscription_period_end) && (
@@ -153,7 +117,9 @@ export default async function Dashboard() {
             )}
           </div>
 
-          <LiveCaptioning userId={user?.id || ''} />
+          <ErrorBoundary>
+            <LiveCaptioning userId={user?.id || ''} />
+          </ErrorBoundary>
         </div>
       </main>
     </div>

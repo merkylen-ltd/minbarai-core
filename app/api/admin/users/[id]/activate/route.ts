@@ -63,6 +63,8 @@ export async function POST(
       await sendAdminEmail(userData.email, 'Account Reactivated', emailHtml)
     }
 
+    console.log(`[Admin API] User ${user.email} activated user ${userId} (${userData.email})`)
+
     return NextResponse.json({
       success: true,
       message: 'User activated successfully',

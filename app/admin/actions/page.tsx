@@ -8,6 +8,18 @@ export default function ActionsPage() {
   const [result, setResult] = useState<string | null>(null)
 
   const handleSendEmail = async () => {
+    if (!email.to || !email.subject || !email.message) {
+      setResult('All fields are required')
+      return
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email.to)) {
+      setResult('Please enter a valid email address')
+      return
+    }
+
     setSending(true)
     setResult(null)
     try {
@@ -17,13 +29,20 @@ export default function ActionsPage() {
         body: JSON.stringify({ userEmail: email.to, subject: email.subject, message: email.message }),
       })
       const data = await res.json()
-      setResult(data.success ? 'Email sent successfully!' : data.error || 'Failed to send email')
-      
+
       if (data.success) {
+        setResult('✓ Email sent successfully to ' + data.recipientEmail)
         setEmail({ to: '', subject: '', message: '' })
+      } else {
+        // Check if user not found error
+        if (data.code === 'USER_NOT_FOUND' || res.status === 404) {
+          setResult('⚠ User not found: ' + (data.error || 'This email is not registered in the system'))
+        } else {
+          setResult('✗ ' + (data.error || 'Failed to send email'))
+        }
       }
     } catch (err) {
-      setResult('Error sending email')
+      setResult('✗ Error sending email: Network error')
     } finally {
       setSending(false)
     }
@@ -49,7 +68,7 @@ export default function ActionsPage() {
           </div>
           <div>
             <h2 className="text-neutral-0 font-display text-2xl font-bold">Send Email to User</h2>
-            <p className="text-neutral-400 text-sm">Send custom emails to specific users</p>
+            <p className="text-neutral-400 text-sm">Send custom emails to registered users only</p>
           </div>
         </div>
 
@@ -65,6 +84,7 @@ export default function ActionsPage() {
               onChange={(e) => setEmail({ ...email, to: e.target.value })}
               className="w-full px-4 py-3 bg-primary-800/50 border border-accent-500/20 rounded-lg text-neutral-0 placeholder-neutral-500 focus:outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 transition-all"
             />
+            <p className="text-neutral-500 text-xs mt-1">Must be a registered user email address</p>
           </div>
 
           <div>
@@ -121,21 +141,27 @@ export default function ActionsPage() {
 
           {result && (
             <div className={`p-4 rounded-lg border ${
-              result.includes('success') 
-                ? 'bg-gradient-to-br from-green-500/10 to-green-600/10 border-green-500/20 text-green-300' 
-                : 'bg-gradient-to-br from-red-500/10 to-red-600/10 border-red-500/20 text-red-300'
+              result.startsWith('✓')
+                ? 'bg-green-500/10 border-green-500/20 text-green-300'
+                : result.startsWith('⚠')
+                ? 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+                : 'bg-red-500/10 border-red-500/20 text-red-300'
             }`}>
-              <div className="flex items-center space-x-2">
-                {result.includes('success') ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center space-x-3">
+                {result.startsWith('✓') ? (
+                  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                   </svg>
+                ) : result.startsWith('⚠') ? (
+                  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4v2m0 4v2m0 0H9m3 0h3m0-11a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                 ) : (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 )}
-                <span className="font-medium">{result}</span>
+                <span className="font-medium text-sm">{result}</span>
               </div>
             </div>
           )}
