@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 
 interface NavItem {
@@ -49,6 +49,24 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    name: 'Invoices',
+    href: '/admin/invoices',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-2 3h4m-5-2h2v2h-2v-2zm8 0h2v2h-2v-2zm2-9H5a2 2 0 00-2 2v12a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2z" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Promo Codes',
+    href: '/admin/promo-codes',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+      </svg>
+    ),
+  },
+  {
     name: 'System Health',
     href: '/admin/health',
     icon: (
@@ -66,11 +84,31 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    name: 'Marketing Tools',
+    href: '/admin/marketing',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.488 9h.047" />
+      </svg>
+    ),
+  },
 ]
 
 export default function AdminSidebar() {
   const pathname = usePathname()
   const [isCollapsed, setIsCollapsed] = useState(false)
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsCollapsed(true)
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [])
 
   return (
     <>
@@ -78,7 +116,8 @@ export default function AdminSidebar() {
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="lg:hidden fixed top-20 left-4 z-50 p-2 rounded-lg bg-primary-700 text-neutral-0 hover:bg-primary-600 transition-colors"
-        aria-label="Toggle menu"
+        aria-label="Toggle admin navigation menu"
+        aria-expanded={!isCollapsed}
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -124,6 +163,7 @@ export default function AdminSidebar() {
                       : 'text-neutral-400 hover:bg-primary-700 hover:text-neutral-0 hover:border hover:border-accent-500/20'
                   }`}
                   title={item.name}
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   {item.icon}
                   {!isCollapsed && <span className="font-medium">{item.name}</span>}
