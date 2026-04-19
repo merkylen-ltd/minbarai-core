@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import LoadingButton from '@/components/forms/LoadingButton'
-import AdminLayout from '@/components/admin/AdminLayout'
 
 interface Invoice {
   id: string
@@ -199,18 +198,15 @@ export default function InvoicesPage() {
 
   if (loading) {
     return (
-      <AdminLayout>
-        <div className="space-y-6">
-          <h1 className="text-3xl font-display font-semibold text-neutral-0">Invoices</h1>
-          <div className="animate-pulse">Loading...</div>
-        </div>
-      </AdminLayout>
+      <div className="space-y-6">
+        <h1 className="text-3xl font-display font-semibold text-neutral-0">Invoices</h1>
+        <div className="animate-pulse">Loading...</div>
+      </div>
     )
   }
 
   return (
-    <AdminLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
       {/* Header */}
       <div className="border-b border-accent-500/20 pb-6">
         <div className="flex items-center justify-between">
@@ -508,7 +504,6 @@ export default function InvoicesPage() {
           <span>{error}</span>
         </div>
       )}
-      </div>
-    </AdminLayout>
+    </div>
   )
 }

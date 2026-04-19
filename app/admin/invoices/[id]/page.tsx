@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { ArrowLeft } from 'lucide-react'
 import LoadingButton from '@/components/forms/LoadingButton'
-import AdminLayout from '@/components/admin/AdminLayout'
 
 interface InvoiceDetail {
   id: string
@@ -88,43 +87,38 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
 
   if (loading) {
     return (
-      <AdminLayout>
-        <div className="space-y-6">
-          <Link
-            href="/admin/invoices"
-            className="inline-flex items-center gap-2 text-accent-400 hover:text-accent-300"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Invoices
-          </Link>
-          <div className="animate-pulse">Loading...</div>
-        </div>
-      </AdminLayout>
+      <div className="space-y-6">
+        <Link
+          href="/admin/invoices"
+          className="inline-flex items-center gap-2 text-accent-400 hover:text-accent-300"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Invoices
+        </Link>
+        <div className="animate-pulse">Loading...</div>
+      </div>
     )
   }
 
   if (!invoice) {
     return (
-      <AdminLayout>
-        <div className="space-y-6">
-          <Link
-            href="/admin/invoices"
-            className="inline-flex items-center gap-2 text-accent-400 hover:text-accent-300"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Invoices
-          </Link>
-          <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-300 rounded-lg">
-            Invoice not found or failed to load
-          </div>
+      <div className="space-y-6">
+        <Link
+          href="/admin/invoices"
+          className="inline-flex items-center gap-2 text-accent-400 hover:text-accent-300"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Invoices
+        </Link>
+        <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-300 rounded-lg">
+          Invoice not found or failed to load
         </div>
-      </AdminLayout>
+      </div>
     )
   }
 
   return (
-    <AdminLayout>
-      <div className="space-y-8">
+    <div className="space-y-8">
         {/* Header */}
         <div>
           <Link
@@ -288,6 +282,5 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
           </div>
         )}
       </div>
-    </AdminLayout>
   )
 }
