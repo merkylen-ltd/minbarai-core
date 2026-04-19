@@ -274,6 +274,11 @@ const relevantEvents = new Set([
   
   // Refund events
   'charge.refunded',
+  
+  // Admin invoice events
+  'invoice.paid',
+  'invoice.voided',
+  'invoice.marked_uncollectible',
 ])
 
 export async function POST(request: Request) {
@@ -430,6 +435,21 @@ export async function POST(request: Request) {
       case 'charge.refunded':
         const refundedCharge = event.data.object as Stripe.Charge
         await handleChargeRefunded(refundedCharge)
+        break
+      
+      case 'invoice.paid':
+        const paidInvoice = event.data.object as Stripe.Invoice
+        await handleInvoicePaid(paidInvoice)
+        break
+      
+      case 'invoice.voided':
+        const voidedInvoice = event.data.object as Stripe.Invoice
+        await handleInvoiceStatusUpdate(voidedInvoice, 'void')
+        break
+      
+      case 'invoice.marked_uncollectible':
+        const uncollectibleInvoice = event.data.object as Stripe.Invoice
+        await handleInvoiceStatusUpdate(uncollectibleInvoice, 'uncollectible')
         break
     }
 
@@ -661,6 +681,11 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   try {
     console.log(`Invoice payment succeeded: ${invoice.id}`)
     
+    // Guard: admin invoices are handled by invoice.paid event
+    if (invoice.metadata?.minbarai_type === 'admin_invoice') {
+      return
+    }
+    
     if (invoice.subscription) {
       const subscription = await stripe!.subscriptions.retrieve(
         invoice.subscription as string
@@ -825,4 +850,220 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
   sendRefundNotificationEmail(toEmail, amount).catch((err) =>
     console.error('[Webhook] sendRefundNotificationEmail failed:', err)
   )
+}
+
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  try {
+    console.log(`Invoice paid: ${invoice.id}`)
+
+    // Route based on invoice type
+    if (invoice.subscription) {
+      // Subscription renewal — handle via existing subscription flow
+      const subscription = await stripe!.subscriptions.retrieve(
+        invoice.subscription as string
+      )
+      await handleSubscriptionChange(subscription)
+    } else if (invoice.metadata?.minbarai_type === 'admin_invoice') {
+      // Admin invoice — activate user account
+      await handleAdminInvoicePaid(invoice)
+    } else {
+      // Unknown one-off invoice — skip (no metadata)
+      console.log(`Skipping one-off invoice ${invoice.id} with no metadata`)
+    }
+  } catch (error) {
+    console.error(`Error in handleInvoicePaid for invoice ${invoice.id}:`, error)
+    throw error
+  }
+}
+
+async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const adminInvoiceId = invoice.metadata?.admin_invoice_id
+
+    console.log(`Processing admin invoice paid: ${invoice.id} (admin_invoice_id: ${adminInvoiceId})`)
+
+    if (!adminInvoiceId) {
+      console.error(`Admin invoice paid event missing admin_invoice_id metadata: ${invoice.id}`)
+      throw new Error('Missing admin_invoice_id in metadata')
+    }
+
+    // 1. Fetch admin_invoices row
+    const { data: adminInvoice, error: fetchError } = await supabaseAdmin
+      .from('admin_invoices')
+      .select('*')
+      .eq('stripe_invoice_id', invoice.id)
+      .single()
+
+    if (fetchError || !adminInvoice) {
+      console.error(`Admin invoice not found in DB for stripe invoice ${invoice.id}`)
+      throw new Error(`Admin invoice record not found`)
+    }
+
+    // 2. Check idempotency: if already activated, skip
+    if (adminInvoice.activated_at) {
+      console.log(`Admin invoice ${adminInvoiceId} already activated at ${adminInvoice.activated_at}, skipping`)
+      return
+    }
+
+    // 3. Extract activation parameters from metadata
+    const durationDays = parseInt(invoice.metadata?.duration_days || '0', 10)
+    const sessionLimitMinutes = parseInt(invoice.metadata?.session_limit_minutes || '0', 10)
+
+    if (!durationDays || !sessionLimitMinutes) {
+      throw new Error('Missing duration_days or session_limit_minutes in invoice metadata')
+    }
+
+    // 4. Activate user account
+    const userId = await activateUserForAdminInvoice(
+      adminInvoice.recipient_email,
+      durationDays,
+      sessionLimitMinutes,
+      adminInvoice.stripe_customer_id
+    )
+
+    // 5. Update admin_invoices row (idempotency: activated_at = NOW)
+    const { error: updateError } = await supabaseAdmin
+      .from('admin_invoices')
+      .update({
+        status: 'paid',
+        activated_at: new Date().toISOString(),
+        supabase_user_id: userId,
+      })
+      .eq('id', adminInvoiceId)
+
+    if (updateError) {
+      console.error(`Failed to update admin invoice ${adminInvoiceId}:`, updateError)
+      throw updateError
+    }
+
+    console.log(`Admin invoice ${adminInvoiceId} activated for user ${adminInvoice.recipient_email}`)
+  } catch (error) {
+    console.error(`Error in handleAdminInvoicePaid:`, error)
+    throw error
+  }
+}
+
+async function activateUserForAdminInvoice(
+  recipientEmail: string,
+  durationDays: number,
+  sessionLimitMinutes: number,
+  stripeCustomerId: string
+): Promise<string> {
+  const supabaseAdmin = getSupabaseAdmin()
+
+  try {
+    // 1. Check if user exists
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('id, subscription_period_end')
+      .eq('email', recipientEmail)
+      .single()
+
+    // Calculate new period end: max(now, existing period) + durationDays
+    const now = new Date()
+    const existingEnd = existingUser?.subscription_period_end
+      ? new Date(existingUser.subscription_period_end)
+      : now
+
+    const baseDate = existingEnd > now ? existingEnd : now
+    const newPeriodEnd = new Date(baseDate.getTime() + durationDays * 24 * 60 * 60 * 1000)
+
+    let userId: string
+
+    if (existingUser) {
+      // User exists — update subscription fields
+      const { error: updateError } = await supabaseAdmin
+        .from('users')
+        .update({
+          subscription_status: 'active',
+          subscription_id: null,
+          customer_id: stripeCustomerId,
+          subscription_period_end: newPeriodEnd.toISOString(),
+          session_limit_minutes: sessionLimitMinutes,
+          is_suspended: false,
+        })
+        .eq('id', existingUser.id)
+
+      if (updateError) {
+        throw updateError
+      }
+
+      userId = existingUser.id
+    } else {
+      // User does not exist — invite via auth then update
+      const { data: authResponse, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+        recipientEmail,
+        {
+          data: {
+            invited_by: 'admin_invoice',
+          },
+        }
+      )
+
+      if (authError || !authResponse.user) {
+        throw new Error(`Failed to invite user ${recipientEmail}: ${authError?.message}`)
+      }
+
+      userId = authResponse.user.id
+
+      // Create users row via update (relying on trigger to create if not exists)
+      const { error: updateError } = await supabaseAdmin
+        .from('users')
+        .update({
+          subscription_status: 'active',
+          subscription_id: null,
+          customer_id: stripeCustomerId,
+          subscription_period_end: newPeriodEnd.toISOString(),
+          session_limit_minutes: sessionLimitMinutes,
+          is_suspended: false,
+        })
+        .eq('id', userId)
+
+      if (updateError) {
+        throw updateError
+      }
+    }
+
+    console.log(`User ${recipientEmail} activated with period ending ${newPeriodEnd.toISOString()}`)
+    return userId
+  } catch (error) {
+    console.error(`Error in activateUserForAdminInvoice:`, error)
+    throw error
+  }
+}
+
+async function handleInvoiceStatusUpdate(
+  invoice: Stripe.Invoice,
+  status: 'void' | 'uncollectible'
+) {
+  try {
+    console.log(`Invoice status update: ${invoice.id} → ${status}`)
+
+    const supabaseAdmin = getSupabaseAdmin()
+
+    // Only handle admin invoices
+    if (invoice.metadata?.minbarai_type !== 'admin_invoice') {
+      console.log(`Skipping non-admin invoice status update: ${invoice.id}`)
+      return
+    }
+
+    // Update admin_invoices table
+    const { error: updateError } = await supabaseAdmin
+      .from('admin_invoices')
+      .update({
+        status: status,
+      })
+      .eq('stripe_invoice_id', invoice.id)
+
+    if (updateError) {
+      console.error(`Failed to update admin invoice status: ${invoice.id}`, updateError)
+      throw updateError
+    }
+
+    console.log(`Admin invoice ${invoice.id} status updated to ${status}`)
+  } catch (error) {
+    console.error(`Error in handleInvoiceStatusUpdate:`, error)
+    throw error
+  }
 }
