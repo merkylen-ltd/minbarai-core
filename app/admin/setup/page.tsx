@@ -151,7 +151,7 @@ export default function SetupPage() {
         setAccountExists(true)
         setAccountResult({
           email: accountForm.email.toLowerCase(),
-          userId: '',
+          userId: data.userId,
           temporaryPassword: '',
           existed: true,
           orgName: accountForm.orgName,
