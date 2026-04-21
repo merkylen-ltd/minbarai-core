@@ -5,10 +5,14 @@
 
 set -e  # Exit on any error
 
-# Load environment variables from .env file if it exists
+# Load environment variables (.env.local takes precedence over .env, matching Next.js behaviour)
 if [ -f ".env" ]; then
     echo "Loading environment variables from .env file..."
     export $(grep -v '^#' .env | xargs)
+fi
+if [ -f ".env.local" ]; then
+    echo "Loading environment variables from .env.local file..."
+    export $(grep -v '^#' .env.local | xargs)
 fi
 
 # Configuration - Can be overridden by .env file
@@ -156,16 +160,21 @@ deploy_to_cloud_run() {
         --max-instances 10 \
         --concurrency 100 \
         --timeout 300 \
-        --set-env-vars NODE_ENV=development \
-        --set-env-vars NEXT_PUBLIC_SITE_URL=https://$SERVICE_NAME-xxxxx.run.app \
-        --set-env-vars NEXTAUTH_URL=https://$SERVICE_NAME-xxxxx.run.app \
-        --set-env-vars NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
-        --set-env-vars NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY} \
-        --set-env-vars NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY} \
-        --set-env-vars NEXT_PUBLIC_STRIPE_PRICE_ID=${NEXT_PUBLIC_STRIPE_PRICE_ID} \
-        --set-env-vars NEXT_PUBLIC_VOICEFLOW_WS_URL=${NEXT_PUBLIC_VOICEFLOW_WS_URL} \
-        --set-env-vars NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD=${NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD} \
-        --set-env-vars NEXT_PUBLIC_VOICEFLOW_WS_TOKEN=${NEXT_PUBLIC_VOICEFLOW_WS_TOKEN} \
+        --update-env-vars NODE_ENV=development \
+        --update-env-vars NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-https://minbarai-dev-e5l6mfznxq-ew.a.run.app} \
+        --update-env-vars NEXTAUTH_URL=${NEXT_PUBLIC_SITE_URL:-https://minbarai-dev-e5l6mfznxq-ew.a.run.app} \
+        --update-env-vars NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
+        --update-env-vars NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY} \
+        --update-env-vars NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY} \
+        --update-env-vars NEXT_PUBLIC_STRIPE_PRICE_ID=${NEXT_PUBLIC_STRIPE_PRICE_ID} \
+        --update-env-vars NEXT_PUBLIC_VOICEFLOW_WS_URL=${NEXT_PUBLIC_VOICEFLOW_WS_URL} \
+        --update-env-vars NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD=${NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD} \
+        --update-env-vars NEXT_PUBLIC_VOICEFLOW_WS_TOKEN=${NEXT_PUBLIC_VOICEFLOW_WS_TOKEN} \
+        --update-env-vars ADMIN_EMAILS=${ADMIN_EMAILS} \
+        --update-env-vars RESEND_API_KEY=${RESEND_API_KEY} \
+        --update-env-vars RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL} \
+        --update-env-vars GEMINI_API_KEY=${GEMINI_API_KEY} \
+        --update-env-vars CRON_SECRET=${CRON_SECRET} \
         --set-secrets STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest \
         --set-secrets STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest \
         --set-secrets SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest \
