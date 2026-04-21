@@ -57,7 +57,7 @@ export default function PromoCodesPage() {
       setLoading(true)
       const res = await fetch('/api/admin/promo-codes')
       const data = await res.json()
-      setCodes(data.codes || [])
+      setCodes(data.promoCodes || data.codes || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch promo codes')
     } finally {
@@ -80,15 +80,24 @@ export default function PromoCodesPage() {
     setFormState(prev => ({ ...prev, isLoading: true, error: '', success: false }))
 
     try {
-      const body: any = {
-        code: formState.code.toUpperCase(),
+      const body: Record<string, unknown> = {
+        code: formState.code.toUpperCase().trim(),
+        discountType: formState.discountType === 'amount' ? 'amount_off' : 'percent_off',
       }
 
       if (formState.discountType === 'amount') {
-        body.amountOffCents = Math.round(parseFloat(formState.amount) * 100)
+        const amountNum = parseFloat(formState.amount)
+        if (!amountNum || amountNum <= 0) {
+          throw new Error('Amount must be greater than 0')
+        }
+        body.amount = amountNum
         body.currency = formState.currency
       } else {
-        body.percentOff = parseFloat(formState.percent)
+        const pctNum = parseFloat(formState.percent)
+        if (!pctNum || pctNum <= 0 || pctNum > 100) {
+          throw new Error('Percent must be between 0 and 100')
+        }
+        body.percent = pctNum
       }
 
       if (formState.maxRedemptions) {
@@ -314,6 +323,7 @@ export default function PromoCodesPage() {
                     type="date"
                     name="expiresAt"
                     value={formState.expiresAt}
+                    min={new Date().toISOString().split('T')[0]}
                     onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-primary-800/50 border border-accent-500/20 rounded-lg text-neutral-0 focus:outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 transition-all"
                   />

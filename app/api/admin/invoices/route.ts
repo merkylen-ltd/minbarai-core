@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/auth/admin'
 import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
+import { sendAdminInvoiceEmail } from '@/lib/admin/send-invoice-email'
+import { logNotification } from '@/lib/admin/notifications'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2023-10-16',
@@ -20,6 +22,7 @@ interface CreateInvoiceRequest {
   sessionLimitMinutes: number
   dueDate: string
   promoCodeId?: string
+  accountEmails?: string[]
 }
 
 // POST /api/admin/invoices
@@ -48,6 +51,9 @@ export async function POST(request: NextRequest) {
     const adminClient = createAdminClient()
     const amountCents = Math.round(body.amount * 100)
     const adminInvoiceId = randomUUID()
+    const accountEmails = Array.isArray(body.accountEmails)
+      ? body.accountEmails.map(e => e.toLowerCase().trim()).filter(Boolean)
+      : []
 
     // Validate promo code if provided
     let promoCodeRecord = null
@@ -148,6 +154,7 @@ export async function POST(request: NextRequest) {
           admin_invoice_id: adminInvoiceId,
           duration_days: body.durationDays.toString(),
           session_limit_minutes: body.sessionLimitMinutes.toString(),
+          account_count: String(accountEmails.length || 1),
         },
       },
       {
@@ -195,17 +202,50 @@ export async function POST(request: NextRequest) {
       }
     )
 
-    // Send invoice
-    await stripe.invoices.sendInvoice(
-      stripeInvoice.id,
-      {},
-      {
-        idempotencyKey: `inv-send-${adminInvoiceId}`,
-      }
-    )
+    // Send invoice via Stripe (best-effort — depends on Stripe Dashboard email
+    // settings). We retrieve BEFORE sending so we have the hosted_invoice_url
+    // regardless, and we also send our own Resend email below so the customer
+    // always receives a payment link even if Stripe email delivery is disabled.
+    try {
+      await stripe.invoices.sendInvoice(
+        stripeInvoice.id,
+        {},
+        {
+          idempotencyKey: `inv-send-${adminInvoiceId}`,
+        }
+      )
+    } catch (stripeSendErr) {
+      console.error(
+        `[Invoice] stripe.invoices.sendInvoice failed for ${stripeInvoice.id} — continuing with Resend fallback:`,
+        stripeSendErr,
+      )
+    }
 
-    // Retrieve final invoice
+    // Retrieve final invoice (includes hosted_invoice_url populated at finalize)
     const retrievedInvoice = await stripe.invoices.retrieve(stripeInvoice.id)
+
+    // Branded Resend email with the hosted payment URL — always-on delivery path
+    if (retrievedInvoice.hosted_invoice_url) {
+      const emailResult = await sendAdminInvoiceEmail({
+        recipientEmail: body.recipientEmail,
+        organizationName: body.orgName || null,
+        amountCents: finalAmountCents,
+        currency: body.currency,
+        description: body.description,
+        dueDate: body.dueDate,
+        invoiceUrl: retrievedInvoice.hosted_invoice_url,
+      })
+      if (!emailResult.success) {
+        console.error(
+          `[Invoice] Resend fallback email failed for ${body.recipientEmail}:`,
+          emailResult.error,
+        )
+      }
+    } else {
+      console.error(
+        `[Invoice] No hosted_invoice_url on finalized invoice ${stripeInvoice.id} — customer will not receive email`,
+      )
+    }
 
     // Write to database
     const { error: insertError } = await adminClient
@@ -228,6 +268,7 @@ export async function POST(request: NextRequest) {
         stripe_invoice_id: retrievedInvoice.id,
         stripe_invoice_url: retrievedInvoice.hosted_invoice_url || null,
         status: 'open',
+        account_emails: accountEmails,
       })
 
     if (insertError) {
@@ -248,6 +289,29 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', body.promoCodeId)
     }
+
+    await logNotification({
+      type: 'invoice_created',
+      title: accountEmails.length > 0
+        ? `Bulk invoice created · ${accountEmails.length} seats for ${body.recipientEmail}`
+        : `Invoice created for ${body.recipientEmail}`,
+      message: `${(finalAmountCents / 100).toFixed(2)} ${body.currency.toUpperCase()}${
+        discountAmountCents > 0 ? ` (promo saved ${(discountAmountCents / 100).toFixed(2)})` : ''
+      } · due ${body.dueDate}`,
+      actorEmail: user.email,
+      targetEmail: body.recipientEmail,
+      metadata: {
+        invoice_id: adminInvoiceId,
+        stripe_invoice_id: retrievedInvoice.id,
+        amount_cents: amountCents,
+        final_amount_cents: finalAmountCents,
+        discount_amount_cents: discountAmountCents,
+        currency: body.currency,
+        account_count: accountEmails.length || 1,
+        is_bulk: accountEmails.length > 0,
+      },
+      client: adminClient,
+    })
 
     return NextResponse.json({
       success: true,

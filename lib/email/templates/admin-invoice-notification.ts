@@ -1,94 +1,113 @@
-export const adminInvoiceNotificationEmail = (params: {
+/**
+ * Admin Invoice Notification Email.
+ *
+ * Sent via Resend alongside Stripe's own invoice email so customers always
+ * receive a payment link regardless of Stripe Dashboard settings. Uses the
+ * shared brand building blocks from _common.ts — consistent with welcome,
+ * subscription confirmation, and all other MinbarAI transactional emails.
+ */
+
+import {
+  escapeHtml,
+  headerStandard,
+  footer,
+  ctaButton,
+  wrap,
+  formatAmount,
+  COLOR_PRIMARY_900,
+  COLOR_ACCENT,
+  COLOR_NEUTRAL_600,
+  COLOR_NEUTRAL_400,
+  COLOR_NEUTRAL_50,
+  COLOR_NEUTRAL_200,
+} from './_common'
+
+export interface AdminInvoiceNotificationParams {
   organizationName?: string
+  /** Amount in cents (post-discount — the final amount due). */
   amount: number
   currency: string
   description: string
   dueDate: string
   invoiceUrl: string
   recipientEmail: string
-}) => {
-  const currencySymbols: Record<string, string> = {
-    eur: '€',
-    usd: '$',
-    gbp: '£',
-  }
-  const symbol = currencySymbols[params.currency.toLowerCase()] || params.currency
+}
 
-  return {
-    subject: `Invoice Payment Required – MinbarAI`,
-    html: `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { border-bottom: 3px solid #55a39a; padding-bottom: 20px; margin-bottom: 30px; }
-    .logo { font-size: 24px; font-weight: bold; color: #1a1a1a; }
-    .content { margin: 30px 0; }
-    .invoice-section { background: #f8f8f8; border-left: 4px solid #55a39a; padding: 20px; margin: 20px 0; }
-    .amount { font-size: 36px; font-weight: bold; color: #55a39a; margin: 10px 0; }
-    .details { margin: 15px 0; }
-    .detail-row { display: flex; justify-content: space-between; margin: 8px 0; }
-    .detail-label { color: #666; }
-    .cta-button { display: inline-block; background: #55a39a; color: white; padding: 12px 30px; border-radius: 4px; text-decoration: none; margin: 20px 0; font-weight: bold; }
-    .footer { border-top: 1px solid #ddd; padding-top: 20px; margin-top: 40px; font-size: 12px; color: #999; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">MinbarAI</div>
-    </div>
+export function adminInvoiceNotificationEmail(params: AdminInvoiceNotificationParams) {
+  const org = params.organizationName || 'Valued Partner'
+  const amount = formatAmount(params.amount, params.currency)
 
-    <div class="content">
-      <p>Dear ${params.organizationName || 'Valued Partner'},</p>
+  const innerHtml = `
+    ${headerStandard('Your Invoice is Ready', `Payment due ${escapeHtml(params.dueDate)}`)}
 
-      <p>We are pleased to inform you that your MinbarAI subscription invoice is ready for payment. Please review the details below and complete payment by the due date.</p>
+    <div style="padding: 48px 40px;">
+      <h2 style="color: ${COLOR_PRIMARY_900}; font-size: 22px; font-weight: 600; margin: 0 0 18px 0;">
+        Hello ${escapeHtml(org)} 👋
+      </h2>
 
-      <div class="invoice-section">
-        <div class="detail-row">
-          <span class="detail-label">Invoice Amount:</span>
-          <strong>${symbol}${(params.amount / 100).toFixed(2)}</strong>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Currency:</span>
-          <strong>${params.currency.toUpperCase()}</strong>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Description:</span>
-          <strong>${params.description}</strong>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">Due Date:</span>
-          <strong>${params.dueDate}</strong>
-        </div>
+      <p style="color: ${COLOR_NEUTRAL_600}; font-size: 15px; line-height: 1.7; margin: 0 0 28px 0;">
+        Your MinbarAI invoice has been prepared and is ready for payment. Review the details below and complete payment securely through Stripe using the button at the bottom of this email.
+      </p>
+
+      <!-- Amount callout -->
+      <div style="background: linear-gradient(135deg, ${COLOR_ACCENT}15 0%, ${COLOR_ACCENT}08 100%); border-left: 4px solid ${COLOR_ACCENT}; padding: 24px; border-radius: 8px; margin: 0 0 28px 0;">
+        <p style="color: ${COLOR_NEUTRAL_400}; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 8px 0;">Amount Due</p>
+        <p style="color: ${COLOR_PRIMARY_900}; font-size: 38px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">
+          ${escapeHtml(amount)}
+        </p>
       </div>
 
-      <p style="text-align: center; margin-top: 30px;">
-        <a href="${params.invoiceUrl}" class="cta-button">View & Pay Invoice</a>
+      <!-- Details table -->
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 28px 0;">
+        <tbody>
+          <tr>
+            <td style="padding: 12px 0; border-bottom: 1px solid ${COLOR_NEUTRAL_200}; color: ${COLOR_NEUTRAL_400}; font-size: 13px; width: 40%;">Description</td>
+            <td style="padding: 12px 0; border-bottom: 1px solid ${COLOR_NEUTRAL_200}; color: ${COLOR_PRIMARY_900}; font-size: 14px; font-weight: 500;">
+              ${escapeHtml(params.description)}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 0; border-bottom: 1px solid ${COLOR_NEUTRAL_200}; color: ${COLOR_NEUTRAL_400}; font-size: 13px;">Currency</td>
+            <td style="padding: 12px 0; border-bottom: 1px solid ${COLOR_NEUTRAL_200}; color: ${COLOR_PRIMARY_900}; font-size: 14px; font-weight: 500;">
+              ${escapeHtml(params.currency.toUpperCase())}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 0; color: ${COLOR_NEUTRAL_400}; font-size: 13px;">Due Date</td>
+            <td style="padding: 12px 0; color: ${COLOR_PRIMARY_900}; font-size: 14px; font-weight: 500;">
+              ${escapeHtml(params.dueDate)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      ${ctaButton(params.invoiceUrl, 'View & Pay Invoice')}
+
+      <p style="color: ${COLOR_NEUTRAL_400}; font-size: 13px; line-height: 1.6; text-align: center; margin: 24px 0 0 0;">
+        You'll be taken to a secure Stripe payment page.<br>
+        No MinbarAI login required to pay.
       </p>
 
-      <p style="margin-top: 30px;">The link above will take you to our secure payment portal. You can view the full invoice details and complete payment using your preferred payment method.</p>
+      <div style="background-color: ${COLOR_NEUTRAL_50}; padding: 20px; border-radius: 8px; margin-top: 32px;">
+        <p style="color: ${COLOR_NEUTRAL_600}; font-size: 13px; margin: 0 0 4px 0;">
+          <strong>Questions about this invoice?</strong>
+        </p>
+        <p style="color: ${COLOR_NEUTRAL_400}; font-size: 13px; margin: 0;">
+          📧 <a href="mailto:support@minbarai.com" style="color: ${COLOR_ACCENT}; text-decoration: none;">support@minbarai.com</a>
+        </p>
+      </div>
 
-      <p><strong>If you have any questions regarding this invoice, please contact our support team at support@minbarai.com</strong></p>
-
-      <p>Thank you for partnering with MinbarAI.</p>
-
-      <p style="margin-top: 30px; color: #666;">
-        Best regards,<br>
-        The MinbarAI Team
+      <p style="color: ${COLOR_NEUTRAL_400}; font-size: 13px; line-height: 1.6; margin: 28px 0 0 0;">
+        Thank you for partnering with MinbarAI.<br>
+        <span style="color: ${COLOR_NEUTRAL_600};">The MinbarAI Team</span>
       </p>
     </div>
 
-    <div class="footer">
-      <p>© 2026 MinbarAI. All rights reserved.</p>
-      <p>This is an automated message. Please do not reply directly to this email.</p>
-    </div>
-  </div>
-</body>
-</html>
-    `,
+    ${footer()}
+  `
+
+  return {
+    subject: `Invoice from MinbarAI — ${amount} due ${params.dueDate}`,
+    html: wrap(innerHtml),
   }
 }

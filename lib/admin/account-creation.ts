@@ -3,7 +3,21 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { adminWelcomeNewUserEmail } from '@/lib/email/templates/admin-welcome-new-user'
 import { adminInvoiceNotificationEmail } from '@/lib/email/templates/admin-invoice-notification'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy init — the Resend SDK constructor throws if the key is missing/empty.
+// Module-level `new Resend(...)` breaks `next build` when env vars aren't
+// available at build time (e.g. Docker builds where secrets are injected at
+// runtime). Initialize on first use instead.
+let resendClient: Resend | null = null
+function getResend(): Resend {
+  if (!resendClient) {
+    const key = process.env.RESEND_API_KEY
+    if (!key || key === 'your_resend_api_key') {
+      throw new Error('RESEND_API_KEY is not configured')
+    }
+    resendClient = new Resend(key)
+  }
+  return resendClient
+}
 
 export interface CreateAccountParams {
   email: string
@@ -122,7 +136,7 @@ export async function sendWelcomeEmailWithCredentials(params: {
     dashboardUrl: params.dashboardUrl,
   })
 
-  const { error } = await resend.emails.send({
+  const { error } = await getResend().emails.send({
     from: process.env.RESEND_FROM_EMAIL || 'support@minbarai.com',
     to: params.email,
     subject: emailTemplate.subject,
@@ -157,7 +171,7 @@ export async function sendInvoiceNotificationEmail(params: {
     recipientEmail: params.recipientEmail,
   })
 
-  const { error } = await resend.emails.send({
+  const { error } = await getResend().emails.send({
     from: process.env.RESEND_FROM_EMAIL || 'support@minbarai.com',
     to: params.recipientEmail,
     subject: emailTemplate.subject,

@@ -94,12 +94,11 @@ const navSections: NavSection[] = [
         ),
       },
       {
-        name: 'Marketing Tools',
-        href: '/admin/marketing',
+        name: 'Activity Log',
+        href: '/admin/notifications',
         icon: (
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.488 9h.047" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
         ),
       },
@@ -224,12 +223,12 @@ export default function AdminSidebar() {
             <Link
               href="/dashboard"
               className="flex items-center space-x-3 px-4 py-3 rounded-lg text-neutral-400 hover:bg-primary-700 hover:text-neutral-0 transition-colors"
-              title="Back to Dashboard"
+              title="Open MinbarAI user app (leaves admin panel)"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
-              {!isCollapsed && <span className="font-medium">Dashboard</span>}
+              {!isCollapsed && <span className="font-medium">User App</span>}
             </Link>
           </div>
         </div>

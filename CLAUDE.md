@@ -55,10 +55,12 @@ The schema file is authoritative for **fresh database setup** — run it in the 
 
 For **incremental changes** to an existing database, use the migration system:
 - Migration files live in `supabase/migrations/` and are named `NNN_description.sql`
-- Run `npm run migrate` to apply pending migrations (requires `DATABASE_URL`)
+- Run `npm run migrate` to apply pending migrations (requires `DATABASE_URL`; `SUPABASE_ACCESS_TOKEN` also works via the Management API)
 - The runner creates a `public._migrations` tracking table on first run
 - Each migration runs in a transaction — it rolls back automatically on error
 - Migration files use `IF NOT EXISTS` / `CREATE OR REPLACE` so they are safe to re-run
+
+Applied migrations: `001_auth_rate_limits`, `002_add_is_suspended_to_users`, `003_webhook_rate_limiting`, `004_invoices_and_promo_codes`, `005_bulk_invoice_accounts` (adds `account_emails TEXT[]` + `activated_account_emails TEXT[]` with GIN index), `006_admin_notifications`, `007_admin_invoices_fk_set_null` (FK to `auth.users` now `ON DELETE SET NULL`).
 
 ### Stripe integration
 
@@ -114,6 +116,67 @@ Users can export live captioning sessions as premium PDF documents. The implemen
 ### Admin panel (`app/admin/`)
 
 Full management dashboard for users, subscriptions, payments, analytics, and real-time active sessions. All `/api/admin/*` routes re-verify admin status server-side — middleware protection is not sufficient alone.
+
+### Admin invoice & promo-code system
+
+Admins create Stripe invoices (single or bulk) from `/admin/setup` and `/admin/invoices`. The flow is split between the admin HTTP routes and a pure library so the logic is testable without HTTP scaffolding.
+
+**Create invoice (`/api/admin/invoices` POST)**
+- Accepts `{ recipientEmail, amount, accountEmails?[], promoCodeId?, metadata? }`. For bulk, `account_count` is recorded on the Stripe invoice metadata.
+- Applies promo code math server-side (amount_off / percent_off), enforces guardrails (no negative totals), and uses a Stripe idempotency key so retries don't double-bill.
+- Emails the invoice via **dual-send**: Stripe's built-in `sendInvoice` **and** a Resend-backed branded email (`lib/admin/send-invoice-email.ts`). Stripe alone isn't reliable because delivery depends on dashboard email settings.
+- Logs an `invoice_created` notification on success; rolls back Stripe invoice if DB insert fails.
+
+**Payment → activation**
+- `handleInvoicePaymentSucceeded` in `app/api/stripe/webhooks/route.ts` routes admin invoices through `handleAdminInvoicePaid` → `activateAdminInvoiceAccounts` (in `lib/admin/activate-invoice.ts`).
+- Stripe sends both `invoice.paid` and `invoice.payment_succeeded` — **both** event types must be subscribed on the webhook endpoint, and both route admin invoices through activation.
+- Per-email idempotency: the `admin_invoices.activated_account_emails TEXT[]` column records which emails have already been activated, so webhook retries (or a reconcile followed by a late webhook) won't double-extend subscriptions.
+
+**Reconcile-on-GET / manual sync**
+- `GET /api/admin/invoices/[id]` auto-reconciles open→paid from Stripe if the local row says open but Stripe says paid. Silent heal — admins don't need to press anything.
+- `POST /api/admin/invoices/[id]/sync` is the explicit reconcile path. Only `open → paid` is allowed; any other transition returns 409.
+
+**Void cascade rules** (`POST /api/admin/invoices/[id]/void`)
+- Only `open` invoices are voidable (Stripe constraint).
+- **Bulk invoice** void → child accounts are *suspended* (`is_suspended=true`, `subscription_status='cancelled'`), not deleted. Suspension is reversible; deletion isn't.
+- **Single invoice** void → recipient is left untouched (they may have paid via a different path).
+- Logs an `invoice_voided` notification with the list of affected accounts.
+
+**User deletion & the FK gotcha** (`POST /api/admin/users/[id]/delete`)
+- `admin_invoices.supabase_user_id REFERENCES auth.users(id)` defaulted to `ON DELETE NO ACTION`, which blocked auth user deletion with an opaque FK error.
+- The delete route **clears** `admin_invoices.supabase_user_id = NULL` for the target user **before** calling `adminClient.auth.admin.deleteUser()`. The invoice row survives (audit trail); only the pointer is nulled. `recipient_email` stays populated so admins can still see who it was for.
+- Migration 007 also changed the FK to `ON DELETE SET NULL` so the DB is self-healing if a user is ever deleted through a path that skips the route.
+- Self-delete is blocked with 403.
+
+### Notifications / Activity log (`admin_notifications` table)
+
+Append-only activity feed for every admin action (invoice created/paid/voided/resent, account deleted, etc.). No read/unread state — just history.
+
+- `lib/admin/notifications.ts` exports `logNotification({ type, title, message, actorEmail, targetEmail, metadata, client })`. **Fire-and-forget — never throws**; failures are logged but don't break the originating admin action.
+- `components/admin/NotificationBell.tsx` polls `GET /api/admin/notifications` every 60s for a 24h count badge and recent-activity dropdown.
+- Full history lives at `/admin/notifications` (activity log page) with type filters.
+
+### Shared email design system (`lib/email/templates/_common.ts`)
+
+Header, footer, CTA button, wrap, color tokens, and `escapeHtml`/`formatAmount` helpers are extracted here so every email (auth, suspension, admin invoice notification) shares the same design. When adding a new email template, import from `_common.ts` rather than re-rolling the chrome.
+
+### Resend / Stripe client init — use lazy getters
+
+Module-level `new Resend(process.env.RESEND_API_KEY)` **will** break Docker builds at the "Collecting page data" phase when the var isn't set. Same applies to Stripe. The pattern is a lazy getter:
+
+```typescript
+let resendClient: Resend | null = null
+function getResend(): Resend {
+  if (!resendClient) {
+    const key = process.env.RESEND_API_KEY
+    if (!key || key === 'your_resend_api_key') throw new Error('RESEND_API_KEY is not configured')
+    resendClient = new Resend(key)
+  }
+  return resendClient
+}
+```
+
+Call `getResend()` from inside the request handler — never at module scope. `lib/admin/account-creation.ts` is the canonical example.
 
 ## Key environment variables
 

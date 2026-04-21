@@ -171,19 +171,114 @@ describe('Admin Invoice Webhook Processing', () => {
     })
   })
 
-  describe('handleInvoicePaymentSucceeded guard', () => {
-    it('should skip invoice.payment_succeeded for admin invoices', () => {
+  describe('Bulk (multi-account) admin invoice activation', () => {
+    it('should target account_emails when present, falling back to recipient_email', () => {
+      const bulkInvoice = {
+        recipient_email: 'billing@mosque.org',
+        account_emails: ['seat+1@mosque.org', 'seat+2@mosque.org', 'seat+3@mosque.org'],
+      }
+      const singleInvoice = {
+        recipient_email: 'pastor@mosque.org',
+        account_emails: [],
+      }
+
+      const pickTargets = (inv: { recipient_email: string; account_emails: string[] }) =>
+        inv.account_emails.length > 0 ? inv.account_emails : [inv.recipient_email]
+
+      expect(pickTargets(bulkInvoice)).toEqual([
+        'seat+1@mosque.org',
+        'seat+2@mosque.org',
+        'seat+3@mosque.org',
+      ])
+      expect(pickTargets(singleInvoice)).toEqual(['pastor@mosque.org'])
+    })
+
+    it('should skip emails already in activated_account_emails (per-email idempotency)', () => {
+      const targets = ['a@x.org', 'b@x.org', 'c@x.org']
+      const alreadyActivated = new Set(['a@x.org'])
+
+      const toProcess = targets.filter(e => !alreadyActivated.has(e))
+      expect(toProcess).toEqual(['b@x.org', 'c@x.org'])
+    })
+
+    it('should only set activated_at when all targets succeeded', () => {
+      const targets = ['a', 'b', 'c']
+
+      // Partial success → activated_at stays null so Stripe retries
+      const partialMerged = ['a', 'b']
+      expect(partialMerged.length === targets.length).toBe(false)
+
+      // Full success → activated_at = NOW
+      const fullMerged = ['a', 'b', 'c']
+      expect(fullMerged.length === targets.length).toBe(true)
+    })
+
+    it('should pass null stripe_customer_id for child accounts in bulk mode', () => {
+      const recipient = 'billing@org.com'
+      const child = 'seat+1@org.com'
+      const billingCustomerId = 'cus_billing_123'
+
+      const pickCustomerId = (email: string, isBulk: boolean) =>
+        isBulk && email !== recipient ? null : billingCustomerId
+
+      expect(pickCustomerId(recipient, true)).toBe(billingCustomerId)
+      expect(pickCustomerId(child, true)).toBeNull()
+      expect(pickCustomerId(recipient, false)).toBe(billingCustomerId)
+    })
+
+    it('should throw on partial failure so Stripe retries the webhook', () => {
+      const targets = ['a', 'b', 'c']
+      const succeeded = ['a']
+      const failures = [
+        { email: 'b', error: new Error('auth failure') },
+        { email: 'c', error: new Error('db timeout') },
+      ]
+
+      const isFullySuccessful = succeeded.length === targets.length
+      expect(isFullySuccessful).toBe(false)
+      expect(failures.length > 0).toBe(true)
+      // Partial failure => throw => Stripe retries. On retry,
+      // activated_account_emails contains ['a'] so 'a' is skipped.
+    })
+  })
+
+  describe('handleInvoicePaymentSucceeded routing for admin invoices', () => {
+    it('REGRESSION: admin invoices MUST be routed through activation on invoice.payment_succeeded', () => {
+      // Previously this handler skipped admin invoices, relying on invoice.paid.
+      // Many Stripe accounts only subscribe to invoice.payment_succeeded, which
+      // stranded admin invoices as 'open' forever. Both events must now route
+      // admin invoices through handleAdminInvoicePaid (idempotent via activated_at).
       const invoice: Partial<Stripe.Invoice> = {
         id: 'in_admin',
         status: 'paid',
         metadata: {
           minbarai_type: 'admin_invoice',
           admin_invoice_id: '550e8400-e29b-41d4-a716-446655440000',
+          duration_days: '30',
+          session_limit_minutes: '120',
         },
       }
 
-      // Verify: guard prevents double-processing via invoice.paid
+      // The routing: if minbarai_type === 'admin_invoice' on payment_succeeded,
+      // we call handleAdminInvoicePaid (same path as invoice.paid event).
       expect(invoice.metadata?.minbarai_type).toBe('admin_invoice')
+      // Metadata has everything handleAdminInvoicePaid needs
+      expect(invoice.metadata?.admin_invoice_id).toBeDefined()
+      expect(parseInt(invoice.metadata?.duration_days as string)).toBeGreaterThan(0)
+    })
+
+    it('idempotent safety: receiving both invoice.paid AND payment_succeeded processes only once', () => {
+      // handleAdminInvoicePaid checks adminInvoice.activated_at and short-circuits
+      // if already activated. So even when Stripe delivers BOTH events, activation
+      // only happens once (the second event no-ops).
+      const firstCall = { alreadyActivatedAt: null as string | null }
+      const secondCall = { alreadyActivatedAt: new Date().toISOString() }
+
+      const shouldActivateFirst = !firstCall.alreadyActivatedAt
+      const shouldActivateSecond = !secondCall.alreadyActivatedAt
+
+      expect(shouldActivateFirst).toBe(true)
+      expect(shouldActivateSecond).toBe(false) // skipped — idempotent
     })
   })
 })

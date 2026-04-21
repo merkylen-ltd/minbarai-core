@@ -186,11 +186,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
       )
     }
   }, [
-    liveCaptioning.sourceText,
-    liveCaptioning.languageState.sourceConfig,
-    liveCaptioning.languageState.targetConfig,
-    liveCaptioning.translationVariant,
-    liveCaptioning.showAlert,
+    liveCaptioning,
     typingAnimation.completedTranslations,
   ])
 

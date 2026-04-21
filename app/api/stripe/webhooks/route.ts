@@ -11,6 +11,8 @@ import {
   sendDisputeAlertEmail,
 } from '@/lib/email/resend'
 import { sendWelcomeEmailWithCredentials } from '@/lib/admin/account-creation'
+import { activateAdminInvoiceAccounts, activateSingleUserForInvoice } from '@/lib/admin/activate-invoice'
+import { logNotification } from '@/lib/admin/notifications'
 
 export const runtime = 'nodejs'
 
@@ -681,12 +683,17 @@ async function handleTrialWillEnd(subscription: Stripe.Subscription) {
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   try {
     console.log(`Invoice payment succeeded: ${invoice.id}`)
-    
-    // Guard: admin invoices are handled by invoice.paid event
+
+    // Admin invoices: route through the same activation path as invoice.paid.
+    // Stripe fires BOTH invoice.paid AND invoice.payment_succeeded for the same
+    // payment, but many accounts only have payment_succeeded enabled on their
+    // webhook endpoint. Processing either one (idempotent via admin_invoices
+    // .activated_at guard) makes the flow robust to that config drift.
     if (invoice.metadata?.minbarai_type === 'admin_invoice') {
+      await handleAdminInvoicePaid(invoice)
       return
     }
-    
+
     if (invoice.subscription) {
       const subscription = await stripe!.subscriptions.retrieve(
         invoice.subscription as string
@@ -901,7 +908,10 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
       throw new Error(`Admin invoice record not found`)
     }
 
-    // 2. Check idempotency: if already activated, skip
+    // 2. Check idempotency: if fully activated, skip.
+    // For multi-account invoices the activation lib uses per-email idempotency via
+    // activated_account_emails so a Stripe retry only re-activates emails that did
+    // not succeed before.
     if (adminInvoice.activated_at) {
       console.log(`Admin invoice ${adminInvoiceId} already activated at ${adminInvoice.activated_at}, skipping`)
       return
@@ -915,56 +925,83 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
       throw new Error('Missing duration_days or session_limit_minutes in invoice metadata')
     }
 
-    // 4. Activate user account
-    const userId = await activateUserForAdminInvoice(
-      adminInvoice.recipient_email,
-      durationDays,
-      sessionLimitMinutes,
-      adminInvoice.stripe_customer_id
+    // 4. Activate target accounts (single recipient OR bulk child accounts).
+    // activateAdminInvoiceAccounts handles per-email idempotency, child customer_id
+    // isolation, and atomic activated_account_emails persistence before we throw.
+    const result = await activateAdminInvoiceAccounts(
+      adminInvoice,
+      { durationDays, sessionLimitMinutes },
+      supabaseAdmin,
+      activateUserForAdminInvoice,
     )
 
-    // 5. Update admin_invoices row (idempotency: activated_at = NOW)
-    const { error: updateError } = await supabaseAdmin
-      .from('admin_invoices')
-      .update({
-        status: 'paid',
-        activated_at: new Date().toISOString(),
-        supabase_user_id: userId,
-      })
-      .eq('id', adminInvoiceId)
+    const primaryUserId = result.newlyActivated[0]?.userId || adminInvoice.supabase_user_id || null
 
-    if (updateError) {
-      console.error(`Failed to update admin invoice ${adminInvoiceId}:`, updateError)
-      throw updateError
+    console.log(
+      `Admin invoice ${adminInvoiceId} activated ${result.newlyActivated.length + result.previouslyActivated.length}/${result.targets.length} account(s)`,
+    )
+
+    // Log activity feed entry (idempotent-friendly — only on successful full activation)
+    if (result.failures.length === 0 && result.newlyActivated.length > 0) {
+      await logNotification({
+        type: 'invoice_paid',
+        title: result.isBulk
+          ? `Paid bulk invoice · ${result.newlyActivated.length} seats activated`
+          : `Paid invoice for ${adminInvoice.recipient_email}`,
+        message: result.isBulk
+          ? `Activated ${result.newlyActivated.length}/${result.targets.length} child account(s). Billing: ${adminInvoice.recipient_email}.`
+          : `Subscription activated for ${adminInvoice.recipient_email}.`,
+        actorEmail: 'stripe-webhook',
+        targetEmail: adminInvoice.recipient_email,
+        metadata: {
+          invoice_id: adminInvoiceId,
+          stripe_invoice_id: invoice.id,
+          amount_cents: invoice.amount_paid,
+          currency: invoice.currency,
+          is_bulk: result.isBulk,
+          activated: result.newlyActivated.map(n => n.email),
+        },
+        client: supabaseAdmin,
+      })
     }
 
-    console.log(`Admin invoice ${adminInvoiceId} activated for user ${adminInvoice.recipient_email}`)
-
-    // 6. Send welcome email with credentials
-    try {
-      const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId)
-      if (authUser?.user?.user_metadata?.temporary_password) {
-        const tempPassword = authUser.user.user_metadata.temporary_password
-        const dashboardUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'}/auth/signin`
-        
-        await sendWelcomeEmailWithCredentials({
-          email: adminInvoice.recipient_email,
-          organizationName: adminInvoice.org_name,
-          temporaryPassword: tempPassword,
-          dashboardUrl,
-        })
-        
-        // Clear temporary password from auth metadata
-        await supabaseAdmin.auth.admin.updateUserById(userId, {
-          user_metadata: {
-            ...authUser.user.user_metadata,
-            temporary_password: undefined,
-          },
-        })
+    // If any activation failed, throw so Stripe retries the webhook. Already-activated
+    // emails are skipped via activated_account_emails, so retries are safe.
+    if (result.failures.length > 0) {
+      for (const f of result.failures) {
+        console.error(`Failed to activate ${f.email} for admin invoice ${adminInvoiceId}:`, f.error)
       }
-    } catch (emailError) {
-      console.error(`Failed to send welcome email for admin invoice ${adminInvoiceId}:`, emailError)
-      // Don't throw - welcome email failure shouldn't fail the webhook
+      throw new Error(
+        `Partial activation for admin invoice ${adminInvoiceId}: ${result.failures.length} of ${result.targets.length} failed — Stripe will retry`,
+      )
+    }
+
+    // 6. Send welcome email with credentials — only for single-account (recipient = child).
+    // Bulk flows distribute credentials via the admin out-of-band.
+    if (!result.isBulk && primaryUserId) {
+      try {
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(primaryUserId)
+        if (authUser?.user?.user_metadata?.temporary_password) {
+          const tempPassword = authUser.user.user_metadata.temporary_password
+          const dashboardUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'}/auth/signin`
+
+          await sendWelcomeEmailWithCredentials({
+            email: adminInvoice.recipient_email,
+            organizationName: adminInvoice.org_name,
+            temporaryPassword: tempPassword,
+            dashboardUrl,
+          })
+
+          await supabaseAdmin.auth.admin.updateUserById(primaryUserId, {
+            user_metadata: {
+              ...authUser.user.user_metadata,
+              temporary_password: undefined,
+            },
+          })
+        }
+      } catch (emailError) {
+        console.error(`Failed to send welcome email for admin invoice ${adminInvoiceId}:`, emailError)
+      }
     }
   } catch (error) {
     console.error(`Error in handleAdminInvoicePaid:`, error)
@@ -976,89 +1013,17 @@ async function activateUserForAdminInvoice(
   recipientEmail: string,
   durationDays: number,
   sessionLimitMinutes: number,
-  stripeCustomerId: string
+  stripeCustomerId: string | null
 ): Promise<string> {
-  const supabaseAdmin = getSupabaseAdmin()
-
-  try {
-    // 1. Check if user exists
-    const { data: existingUser } = await supabaseAdmin
-      .from('users')
-      .select('id, subscription_period_end')
-      .eq('email', recipientEmail)
-      .single()
-
-    // Calculate new period end: max(now, existing period) + durationDays
-    const now = new Date()
-    const existingEnd = existingUser?.subscription_period_end
-      ? new Date(existingUser.subscription_period_end)
-      : now
-
-    const baseDate = existingEnd > now ? existingEnd : now
-    const newPeriodEnd = new Date(baseDate.getTime() + durationDays * 24 * 60 * 60 * 1000)
-
-    let userId: string
-
-    if (existingUser) {
-      // User exists — update subscription fields
-      const { error: updateError } = await supabaseAdmin
-        .from('users')
-        .update({
-          subscription_status: 'active',
-          subscription_id: null,
-          customer_id: stripeCustomerId,
-          subscription_period_end: newPeriodEnd.toISOString(),
-          session_limit_minutes: sessionLimitMinutes,
-          is_suspended: false,
-        })
-        .eq('id', existingUser.id)
-
-      if (updateError) {
-        throw updateError
-      }
-
-      userId = existingUser.id
-    } else {
-      // User does not exist — invite via auth then update
-      const { data: authResponse, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-        recipientEmail,
-        {
-          data: {
-            invited_by: 'admin_invoice',
-          },
-        }
-      )
-
-      if (authError || !authResponse.user) {
-        throw new Error(`Failed to invite user ${recipientEmail}: ${authError?.message}`)
-      }
-
-      userId = authResponse.user.id
-
-      // Create users row via update (relying on trigger to create if not exists)
-      const { error: updateError } = await supabaseAdmin
-        .from('users')
-        .update({
-          subscription_status: 'active',
-          subscription_id: null,
-          customer_id: stripeCustomerId,
-          subscription_period_end: newPeriodEnd.toISOString(),
-          session_limit_minutes: sessionLimitMinutes,
-          is_suspended: false,
-        })
-        .eq('id', userId)
-
-      if (updateError) {
-        throw updateError
-      }
-    }
-
-    console.log(`User ${recipientEmail} activated with period ending ${newPeriodEnd.toISOString()}`)
-    return userId
-  } catch (error) {
-    console.error(`Error in activateUserForAdminInvoice:`, error)
-    throw error
-  }
+  // Webhook path — invite the user if they don't exist (first-payment flow).
+  return activateSingleUserForInvoice(
+    getSupabaseAdmin(),
+    recipientEmail,
+    durationDays,
+    sessionLimitMinutes,
+    stripeCustomerId,
+    { inviteIfMissing: true },
+  )
 }
 
 async function handleInvoiceStatusUpdate(

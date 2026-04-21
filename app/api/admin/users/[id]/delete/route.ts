@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/auth/admin'
 import { cookies } from 'next/headers'
 import { stripe } from '@/lib/stripe/config'
+import { logNotification } from '@/lib/admin/notifications'
 
 /**
  * POST /api/admin/users/[id]/delete
@@ -68,24 +69,71 @@ export async function POST(
       }
     }
 
-    // Step 3: Delete the auth user (cascades to users table via ON DELETE CASCADE)
-    // This also cascades to delete all usage_sessions via ON DELETE CASCADE
+    // Step 3: Clear FK references to this auth user that would block deletion.
+    // admin_invoices.supabase_user_id REFERENCES auth.users(id) with default
+    // ON DELETE NO ACTION — so unless we null it out first, the auth delete
+    // fails with a foreign-key violation and the admin sees an opaque error.
+    // The invoice row itself is kept (audit trail) — only the user pointer is
+    // cleared. recipient_email remains populated.
+    const { data: clearedInvoices, error: clearInvoiceError } = await adminClient
+      .from('admin_invoices')
+      .update({ supabase_user_id: null })
+      .eq('supabase_user_id', userId)
+      .select('id')
+
+    if (clearInvoiceError) {
+      console.error(`[Admin API] Failed to clear invoice user refs for ${userId}:`, clearInvoiceError)
+      return NextResponse.json(
+        { error: `Failed to prepare user for deletion: ${clearInvoiceError.message}` },
+        { status: 500 }
+      )
+    }
+
+    // Step 4: Delete the auth user (cascades to public.users via ON DELETE CASCADE,
+    // which cascades to usage_sessions via its own ON DELETE CASCADE).
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId)
 
     if (deleteError) {
       console.error(`[Admin API] Failed to delete auth user ${userId}:`, deleteError)
       return NextResponse.json(
-        { error: `Failed to delete user: ${deleteError.message}` },
+        {
+          error: `Failed to delete user: ${deleteError.message}`,
+          hint: deleteError.message?.includes('foreign key') || deleteError.message?.includes('violates')
+            ? 'User has remaining database references. Check admin_invoices and usage_sessions for this user.'
+            : undefined,
+        },
         { status: 500 }
       )
     }
 
-    console.log(`[Admin API] User ${user.email} deleted user ${userId} (${userData.email}). Stripe subscription: ${userData.subscription_id ? 'cancelled' : 'none'}`)
+    console.log(`[Admin API] User ${user.email} deleted user ${userId} (${userData.email}). Stripe subscription: ${userData.subscription_id ? 'cancelled' : 'none'}, cleared ${clearedInvoices?.length || 0} invoice user refs`)
+
+    await logNotification({
+      type: 'account_deleted',
+      title: `Deleted user ${userData.email}`,
+      message: `Stripe subscription: ${userData.subscription_id ? 'cancelled' : 'none'}${
+        (clearedInvoices?.length || 0) > 0
+          ? ` · Cleared ${clearedInvoices!.length} invoice reference(s) (kept for audit)`
+          : ''
+      }${stripeError ? ` · ${stripeError}` : ''}`,
+      actorEmail: user.email,
+      targetEmail: userData.email,
+      metadata: {
+        deleted_user_id: userId,
+        had_subscription: !!userData.subscription_id,
+        stripe_subscription_id: userData.subscription_id || null,
+        stripe_customer_id: userData.customer_id || null,
+        cleared_invoice_ids: clearedInvoices?.map(i => i.id) || [],
+        stripe_cancel_error: stripeError,
+      },
+      client: adminClient,
+    })
 
     return NextResponse.json({
       success: true,
       message: 'User deleted successfully',
       stripeError: stripeError ? stripeError : undefined,
+      clearedInvoiceCount: clearedInvoices?.length || 0,
       deletedUser: {
         id: userId,
         email: userData.email,

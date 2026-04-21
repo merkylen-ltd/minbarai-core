@@ -1,13 +1,38 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { validatePassword } from '@/lib/auth/password-strength'
 import Link from 'next/link'
 import LogoBrand from '@/components/ui/logo-brand'
 
+// Next.js static generation requires useSearchParams to be inside a Suspense
+// boundary. Split the component so the outer default-export can wrap it.
 export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<ResetPasswordLoading />}>
+      <ResetPasswordInner />
+    </Suspense>
+  )
+}
+
+function ResetPasswordLoading() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary-900 via-primary-800 to-primary-700 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="bg-primary-800/30 border border-accent-500/10 rounded-2xl p-8 space-y-6 animate-pulse">
+          <div className="h-8 w-40 bg-primary-700/50 rounded mx-auto" />
+          <div className="h-4 w-3/4 bg-primary-700/40 rounded mx-auto" />
+          <div className="h-12 bg-primary-700/50 rounded" />
+          <div className="h-12 bg-primary-700/50 rounded" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResetPasswordInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()

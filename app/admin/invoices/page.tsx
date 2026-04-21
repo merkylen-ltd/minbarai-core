@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
+import { aggregateRevenueByCurrency } from '@/lib/admin/invoice-stats'
 
 interface Invoice {
   id: string
@@ -70,32 +71,47 @@ export default function InvoicesPage() {
       </div>
 
       {/* Stats */}
-      {invoices.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/20 rounded-xl p-4 shadow-lg">
-            <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Total Invoices</div>
-            <div className="text-neutral-0 text-3xl font-display font-bold mt-2">{invoices.length}</div>
-          </div>
-          <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/20 rounded-xl p-4 shadow-lg">
-            <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Paid</div>
-            <div className="text-neutral-0 text-3xl font-display font-bold mt-2">
-              {invoices.filter(i => i.status === 'paid').length}
+      {invoices.length > 0 && (() => {
+        const paidByCurrency = aggregateRevenueByCurrency(invoices)
+        const currencies = Object.entries(paidByCurrency)
+
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/20 rounded-xl p-4 shadow-lg">
+              <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Total Invoices</div>
+              <div className="text-neutral-0 text-3xl font-display font-bold mt-2">{invoices.length}</div>
+            </div>
+            <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/20 rounded-xl p-4 shadow-lg">
+              <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Paid</div>
+              <div className="text-neutral-0 text-3xl font-display font-bold mt-2">
+                {invoices.filter(i => i.status === 'paid').length}
+              </div>
+            </div>
+            <div className="bg-gradient-to-br from-orange-500/10 to-orange-600/10 border border-orange-500/20 rounded-xl p-4 shadow-lg">
+              <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Open</div>
+              <div className="text-neutral-0 text-3xl font-display font-bold mt-2">
+                {invoices.filter(i => i.status === 'open').length}
+              </div>
+            </div>
+            <div className="bg-gradient-to-br from-accent-500/10 to-accent-600/10 border border-accent-500/20 rounded-xl p-4 shadow-lg">
+              <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide" title="Sum of paid invoices (after promo discounts)">
+                Revenue (Paid)
+              </div>
+              {currencies.length === 0 ? (
+                <div className="text-neutral-0 text-3xl font-display font-bold mt-2">0</div>
+              ) : (
+                <div className="mt-2 space-y-1">
+                  {currencies.map(([cur, cents]) => (
+                    <div key={cur} className="text-neutral-0 text-2xl font-display font-bold leading-tight">
+                      {(cents / 100).toFixed(2)} <span className="text-base text-neutral-300">{cur}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-          <div className="bg-gradient-to-br from-orange-500/10 to-orange-600/10 border border-orange-500/20 rounded-xl p-4 shadow-lg">
-            <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Open</div>
-            <div className="text-neutral-0 text-3xl font-display font-bold mt-2">
-              {invoices.filter(i => i.status === 'open').length}
-            </div>
-          </div>
-          <div className="bg-gradient-to-br from-accent-500/10 to-accent-600/10 border border-accent-500/20 rounded-xl p-4 shadow-lg">
-            <div className="text-neutral-400 text-xs font-semibold uppercase tracking-wide">Total Revenue</div>
-            <div className="text-neutral-0 text-3xl font-display font-bold mt-2">
-              {(invoices.reduce((sum, i) => sum + i.final_amount_cents, 0) / 100).toFixed(0)}
-            </div>
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Invoices Table */}
       <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl shadow-lg overflow-hidden">
