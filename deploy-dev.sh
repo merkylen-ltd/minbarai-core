@@ -144,10 +144,32 @@ push_image() {
 # Deploy to Cloud Run
 deploy_to_cloud_run() {
     print_status "Deploying to Cloud Run with development settings..."
-    
+
     # Use commit SHA if available, otherwise use latest
     IMAGE_TAG=${COMMIT_SHA:-latest}
-    
+
+    # Write env vars to a temp YAML file so values with commas (e.g. ADMIN_EMAILS)
+    # don't break gcloud's comma-delimited --update-env-vars flag.
+    DEV_SITE_URL=${NEXT_PUBLIC_SITE_URL:-https://minbarai-dev-e5l6mfznxq-ew.a.run.app}
+    ENV_FILE=$(mktemp /tmp/cloud-run-env-XXXXXX.yaml)
+    cat > "$ENV_FILE" << ENVEOF
+NODE_ENV: "development"
+NEXT_PUBLIC_SITE_URL: "${DEV_SITE_URL}"
+NEXTAUTH_URL: "${DEV_SITE_URL}"
+NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL}"
+NEXT_PUBLIC_SUPABASE_ANON_KEY: "${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}"
+NEXT_PUBLIC_STRIPE_PRICE_ID: "${NEXT_PUBLIC_STRIPE_PRICE_ID}"
+NEXT_PUBLIC_VOICEFLOW_WS_URL: "${NEXT_PUBLIC_VOICEFLOW_WS_URL}"
+NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD: "${NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD}"
+NEXT_PUBLIC_VOICEFLOW_WS_TOKEN: "${NEXT_PUBLIC_VOICEFLOW_WS_TOKEN}"
+ADMIN_EMAILS: "${ADMIN_EMAILS}"
+RESEND_API_KEY: "${RESEND_API_KEY}"
+RESEND_FROM_EMAIL: "${RESEND_FROM_EMAIL}"
+GEMINI_API_KEY: "${GEMINI_API_KEY}"
+CRON_SECRET: "${CRON_SECRET}"
+ENVEOF
+
     gcloud run deploy $SERVICE_NAME \
         --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$IMAGE_TAG \
         --platform managed \
@@ -160,27 +182,14 @@ deploy_to_cloud_run() {
         --max-instances 10 \
         --concurrency 100 \
         --timeout 300 \
-        --update-env-vars NODE_ENV=development \
-        --update-env-vars NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-https://minbarai-dev-e5l6mfznxq-ew.a.run.app} \
-        --update-env-vars NEXTAUTH_URL=${NEXT_PUBLIC_SITE_URL:-https://minbarai-dev-e5l6mfznxq-ew.a.run.app} \
-        --update-env-vars NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
-        --update-env-vars NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY} \
-        --update-env-vars NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY} \
-        --update-env-vars NEXT_PUBLIC_STRIPE_PRICE_ID=${NEXT_PUBLIC_STRIPE_PRICE_ID} \
-        --update-env-vars NEXT_PUBLIC_VOICEFLOW_WS_URL=${NEXT_PUBLIC_VOICEFLOW_WS_URL} \
-        --update-env-vars NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD=${NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD} \
-        --update-env-vars NEXT_PUBLIC_VOICEFLOW_WS_TOKEN=${NEXT_PUBLIC_VOICEFLOW_WS_TOKEN} \
-        --update-env-vars ADMIN_EMAILS=${ADMIN_EMAILS} \
-        --update-env-vars RESEND_API_KEY=${RESEND_API_KEY} \
-        --update-env-vars RESEND_FROM_EMAIL=${RESEND_FROM_EMAIL} \
-        --update-env-vars GEMINI_API_KEY=${GEMINI_API_KEY} \
-        --update-env-vars CRON_SECRET=${CRON_SECRET} \
+        --env-vars-file "$ENV_FILE" \
         --set-secrets STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest \
         --set-secrets STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest \
         --set-secrets SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest \
         --service-account ${SERVICE_ACCOUNT_FILE%.*}@$PROJECT_ID.iam.gserviceaccount.com \
         --quiet
-    
+
+    rm -f "$ENV_FILE"
     print_success "Deployed to Cloud Run successfully!"
 }
 
