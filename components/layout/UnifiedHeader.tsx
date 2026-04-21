@@ -6,6 +6,7 @@ import { User, CreditCard, Mic, ArrowLeft } from 'lucide-react';
 import SignOutButton from '@/components/dashboard/SignOutButton';
 import { createClient } from '@/lib/supabase/client';
 import { BOOK_A_DEMO_CALENDAR_URL } from '@/lib/constants';
+import { useIsAdmin } from '@/lib/hooks/useIsAdmin';
 
 const LogoIcon: React.FC<{ className?: string }> = ({ className }) => {
   return (
@@ -46,6 +47,7 @@ const LogoIcon: React.FC<{ className?: string }> = ({ className }) => {
 interface UnifiedHeaderProps {
   variant?: 'landing' | 'dashboard' | 'billing';
   userEmail?: string;
+  isAdmin?: boolean;
   showBackButton?: boolean;
   backButtonHref?: string;
   backButtonText?: string;
@@ -54,6 +56,7 @@ interface UnifiedHeaderProps {
 const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
   variant = 'landing',
   userEmail,
+  isAdmin = false,
   showBackButton = false,
   backButtonHref = '/dashboard',
   backButtonText = 'Back to Dashboard'
@@ -61,27 +64,22 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Use prop when passed from server component; fall back to hook for client-rendered pages
+  const adminFromHook = useIsAdmin();
+  const effectiveIsAdmin = isAdmin || adminFromHook;
 
   useEffect(() => {
     const checkAuthStatus = async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      
       if (user) {
         setIsAuthenticated(true);
         setCurrentUserEmail(user.email || '');
-        
-        // Check if user is admin
-        const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS?.split(',') || [];
-        setIsAdmin(adminEmails.includes(user.email || ''));
       } else {
         setIsAuthenticated(false);
         setCurrentUserEmail('');
-        setIsAdmin(false);
       }
     };
-
     checkAuthStatus();
   }, []);
 
@@ -178,7 +176,7 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
               </Link>
               
               {/* Admin Panel Link - Only show for admin users */}
-              {isAdmin && variant !== 'landing' && (
+              {effectiveIsAdmin && (
                 <Link
                   href="/admin"
                   className="flex items-center space-x-2 text-neutral-400 hover:text-accent-400 transition-colors text-sm"
@@ -277,7 +275,7 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                   </Link>
                   
                   {/* Admin Panel Link - Mobile */}
-                  {isAdmin && variant !== 'landing' && (
+                  {effectiveIsAdmin && (
                     <Link
                       href="/admin"
                       onClick={() => setIsMobileMenuOpen(false)}

@@ -102,8 +102,8 @@ NEXT_PUBLIC_SITE_URL=https://$CUSTOM_DOMAIN
 NEXTAUTH_URL=https://$CUSTOM_DOMAIN
 EOF
     
-    # Build with latest tag and build arguments
-    docker build \
+    # Build with latest tag and build arguments (--no-cache ensures source changes are always picked up)
+    docker build --no-cache \
         --build-arg NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL}" \
         --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY}" \
         --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}" \

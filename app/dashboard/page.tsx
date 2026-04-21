@@ -9,6 +9,7 @@ import Link from 'next/link'
 import StatusBadge from '@/components/admin/StatusBadge'
 import ErrorBoundary from '@/components/dashboard/ErrorBoundary'
 import { isValidSubscriptionStatus, getSubscriptionStatusMessage, getCancelledSubscriptionTimeRemaining, getCancelledSubscriptionEndDate, isCancelledSubscriptionActive } from '@/lib/subscription'
+import { isAdminUser } from '@/lib/auth/admin'
 
 export default async function Dashboard() {
   const cookieStore = await cookies()
@@ -51,7 +52,7 @@ export default async function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-900 via-primary-800 to-primary-700">
       {/* Navigation */}
-      <UnifiedHeader variant="dashboard" userEmail={user?.email} />
+      <UnifiedHeader variant="dashboard" userEmail={user?.email} isAdmin={isAdminUser(user?.email)} />
 
       {/* Main Content */}
       <main className="pt-24 pb-12">
