@@ -71,6 +71,33 @@ interface PromoCode {
 
 const todayIso = () => new Date().toISOString().split('T')[0]
 
+function CopyRow({ label, value, sensitive = false }: { label: string; value: string; sensitive?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div>
+      <p className="text-xs text-neutral-400 uppercase tracking-wide mb-1">{label}</p>
+      <div className="flex items-center gap-2">
+        <span className={`flex-1 font-mono text-sm bg-primary-900/40 border border-accent-500/10 px-3 py-2 rounded-lg text-neutral-0 select-all ${sensitive ? 'tracking-widest' : ''}`}>
+          {value}
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          className="px-3 py-2 rounded-lg bg-primary-700 hover:bg-primary-600 text-xs font-medium transition-colors min-w-[60px]"
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const generatePassword = (): string => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'
   let pw = ''
@@ -889,6 +916,14 @@ export default function SetupPage() {
               >
                 {invoiceLoading ? 'Creating...' : 'Create Invoice'}
               </LoadingButton>
+              <button
+                type="button"
+                onClick={() => setStep(3)}
+                className="px-6 py-3 rounded-lg font-body bg-primary-700/60 hover:bg-primary-600 text-neutral-400 hover:text-neutral-0 border border-accent-500/10 transition-all duration-200 text-sm"
+                title="Skip invoice — account is already created"
+              >
+                Skip
+              </button>
             </div>
           </form>
         </div>
@@ -900,14 +935,14 @@ export default function SetupPage() {
           <div className="text-center space-y-2">
             <div className="text-5xl">✓</div>
             <h2 className="text-2xl font-display font-bold text-green-300">
-              {singleForm.sendWelcomeEmail && mode === 'single' ? 'Credentials Sent!' : 'Setup Complete!'}
+              {mode === 'bulk' ? 'Accounts Created!' : invoiceResult ? 'Setup Complete!' : 'Account Ready!'}
             </h2>
             <p className="text-neutral-300">
               {mode === 'bulk' && bulkResult
-                ? `${bulkResult.created}/${bulkResult.total} accounts created. Invoice sent to ${bulkResult.billingEmail}.`
-                : singleForm.sendWelcomeEmail
-                ? `Welcome email with credentials sent to ${accountResult?.email}`
-                : `Invoice created and sent to ${accountResult?.email}`}
+                ? `${bulkResult.created}/${bulkResult.total} accounts created${invoiceResult ? `. Invoice sent to ${bulkResult.billingEmail}.` : ' — invoice skipped.'}`
+                : invoiceResult
+                ? `Invoice created and sent to ${accountResult?.email}`
+                : `Account created for ${accountResult?.email} — share the credentials below.`}
             </p>
           </div>
 
@@ -920,11 +955,8 @@ export default function SetupPage() {
                   {bulkResult.orgName && <p className="text-neutral-300 text-sm mt-1">{bulkResult.orgName}</p>}
                 </div>
                 <div className="pt-4 border-t border-accent-500/10">
-                  <p className="text-xs text-neutral-400 uppercase tracking-wide mb-2">Shared Password</p>
-                  <p className="text-neutral-0 font-mono text-sm bg-primary-900/30 px-2 py-1 rounded inline-block">
-                    {bulkResult.password}
-                  </p>
-                  <p className="text-xs text-amber-400 mt-2">⚠ Save this password — it is not shown again. Distribute to seats after invoice is paid.</p>
+                  <CopyRow label="Shared Password" value={bulkResult.password} sensitive />
+                  <p className="text-xs text-amber-400 mt-2">⚠ Save this password — it is not stored. Distribute to seat holders after invoice is paid.</p>
                 </div>
                 <div className="pt-4 border-t border-accent-500/10">
                   <p className="text-xs text-neutral-400 uppercase tracking-wide mb-2">Accounts ({bulkResult.created}/{bulkResult.total})</p>
@@ -939,10 +971,19 @@ export default function SetupPage() {
                 </div>
               </>
             ) : accountResult && (
-              <div>
-                <p className="text-xs text-neutral-400 uppercase tracking-wide mb-2">Account</p>
-                <p className="text-neutral-0 font-mono text-sm">{accountResult.email}</p>
-                {accountResult.orgName && <p className="text-neutral-300 text-sm mt-1">{accountResult.orgName}</p>}
+              <div className="space-y-4">
+                {accountResult.orgName && (
+                  <p className="text-neutral-300 text-sm font-medium">{accountResult.orgName}</p>
+                )}
+                <CopyRow label="Email" value={accountResult.email} />
+                {accountResult.temporaryPassword ? (
+                  <CopyRow label="Password" value={accountResult.temporaryPassword} sensitive />
+                ) : accountResult.existed ? (
+                  <div>
+                    <p className="text-xs text-neutral-400 uppercase tracking-wide mb-1">Password</p>
+                    <p className="text-xs text-neutral-500 italic">Existing account — password unchanged</p>
+                  </div>
+                ) : null}
               </div>
             )}
 
