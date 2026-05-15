@@ -28,6 +28,13 @@ export async function POST(
     const body = await request.json()
     const { days = 30 } = body
 
+    if (!Number.isInteger(days) || days <= 0 || days > 3650) {
+      return NextResponse.json(
+        { error: 'days must be a positive integer between 1 and 3650' },
+        { status: 400 }
+      )
+    }
+
     const adminClient = createAdminClient()
 
     // Get current subscription data

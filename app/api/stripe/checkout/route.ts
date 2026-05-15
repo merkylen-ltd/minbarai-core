@@ -187,10 +187,8 @@ export async function POST(request: Request) {
       .single()
 
     if (userDataError) {
-      console.log('Checkout: Error fetching user data:', userDataError)
+      console.error('Checkout: Error fetching user data:', userDataError)
     }
-
-    console.log('Checkout: User data from database:', userData)
 
     // Comprehensive check for existing subscriptions
     // Check database first for active subscriptions
@@ -265,9 +263,7 @@ export async function POST(request: Request) {
         // Continue with checkout - don't fail if Stripe check fails
       }
       
-      console.log(`Checkout: Using existing customer_id: ${customer_id}`)
     } else {
-      console.log('Checkout: Creating new Stripe customer')
       // Create new customer
       const customer = await stripe.customers.create({
         email: user.email,
@@ -276,10 +272,8 @@ export async function POST(request: Request) {
         },
       })
       customer_id = customer.id
-      console.log(`Checkout: Created customer_id: ${customer_id}`)
 
       // Update user with customer_id
-      console.log('Checkout: Creating/updating user record in database')
       const { error: upsertError } = await supabase
         .from('users')
         .upsert({
@@ -287,6 +281,7 @@ export async function POST(request: Request) {
           email: user.email,
           customer_id: customer_id,
           subscription_status: null,
+          session_limit_minutes: 180,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -302,10 +297,6 @@ export async function POST(request: Request) {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || getURL().slice(0, -1)
     const successUrl = `${baseUrl}/dashboard/success`
     const cancelUrl = `${baseUrl}/subscribe?canceled=true`
-    
-    console.log(`Creating checkout session with URLs:`)
-    console.log(`- Success URL: ${successUrl}`)
-    console.log(`- Cancel URL: ${cancelUrl}`)
 
     // Create checkout session with additional configurations for better UX and security
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
@@ -354,9 +345,7 @@ export async function POST(request: Request) {
 
     const session = await stripe.checkout.sessions.create(sessionParams)
 
-    console.log(`Created checkout session ${session.id} for user ${user.id}`)
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       url: session.url,
       session_id: session.id 
     })

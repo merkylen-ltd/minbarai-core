@@ -169,6 +169,14 @@ export async function POST(request: Request) {
     for (const session of staleSessions) {
       const sessionStarted = new Date(session.started_at)
       const sessionLastSeen = new Date(session.last_seen_at)
+
+      // Skip sessions with no max_end_at — new Date(null) = epoch (1970),
+      // which would set ended_at to 1970 and corrupt billing records.
+      if (!session.max_end_at) {
+        console.warn(`[Cleanup] Session ${session.id} has null max_end_at — skipping to avoid data corruption`)
+        continue
+      }
+
       const sessionMaxEnd = new Date(session.max_end_at)
       
       // Determine if session hit cap or TTL expired

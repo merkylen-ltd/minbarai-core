@@ -10,7 +10,6 @@ import {
   sendRefundNotificationEmail,
   sendDisputeAlertEmail,
 } from '@/lib/email/resend'
-import { sendWelcomeEmailWithCredentials } from '@/lib/admin/account-creation'
 import { activateAdminInvoiceAccounts, activateSingleUserForInvoice } from '@/lib/admin/activate-invoice'
 import { logNotification } from '@/lib/admin/notifications'
 
@@ -500,14 +499,19 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     
     console.log(`Updating user ${user_id} subscription to status: ${subscription.status}`)
 
+    // Map Stripe statuses to the DB CHECK constraint set.
+    // 'trialing' is valid in Stripe but not in our schema — treat as 'active'
+    // so the DB update doesn't fail and Stripe doesn't retry the webhook forever.
+    const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
+
     const supabaseAdmin = getSupabaseAdmin()
     const { error } = await supabaseAdmin
       .from('users')
       .update({
-        subscription_status: subscription.status,
+        subscription_status: dbStatus,
         subscription_id: subscription.id,
         customer_id: session.customer as string,
-        subscription_period_end: subscription.current_period_end 
+        subscription_period_end: subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
         updated_at: new Date().toISOString(),
@@ -552,13 +556,15 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription) {
     console.log(`Updating user ${supabaseUserId} subscription to status: ${subscription.status}`)
 
     const supabaseAdmin = getSupabaseAdmin()
+    const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({
         subscription_id: subscription.id,
-        subscription_status: subscription.status,
+        subscription_status: dbStatus,
         customer_id: customer.id,
-        subscription_period_end: subscription.current_period_end 
+        subscription_period_end: subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
         updated_at: new Date().toISOString(),
@@ -591,7 +597,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     let supabaseUserId = customer.metadata?.supabase_user_id
     
     if (!supabaseUserId) {
-      console.log(`No supabase user id in metadata, trying to find by email: ${customer.email}`)
+      console.log(`No supabase user id in metadata for customer ${customer.id}, falling back to email lookup`)
       
       // Try to find user by email as fallback
       if (customer.email) {
@@ -782,7 +788,7 @@ async function handleCustomerUpdated(customer: Stripe.Customer) {
       if (error) {
         console.error(`Failed to update user ${supabaseUserId} email:`, error)
       } else {
-        console.log(`Updated user ${supabaseUserId} email to ${customer.email}`)
+        console.log(`Updated email for user ${supabaseUserId} from Stripe customer ${customer.id}`)
       }
     }
   } catch (error) {
@@ -917,12 +923,16 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
       return
     }
 
-    // 3. Extract activation parameters from metadata
-    const durationDays = parseInt(invoice.metadata?.duration_days || '0', 10)
-    const sessionLimitMinutes = parseInt(invoice.metadata?.session_limit_minutes || '0', 10)
+    // 3. Extract activation parameters — Stripe metadata is primary source,
+    //    DB record is the fallback (metadata can be absent if invoice was created
+    //    outside the normal flow or metadata was stripped by Stripe).
+    const durationDays =
+      parseInt(invoice.metadata?.duration_days || '0', 10) || adminInvoice.duration_days
+    const sessionLimitMinutes =
+      parseInt(invoice.metadata?.session_limit_minutes || '0', 10) || adminInvoice.session_limit_minutes
 
     if (!durationDays || !sessionLimitMinutes) {
-      throw new Error('Missing duration_days or session_limit_minutes in invoice metadata')
+      throw new Error(`Missing duration_days or session_limit_minutes for admin invoice ${adminInvoiceId}`)
     }
 
     // 4. Activate target accounts (single recipient OR bulk child accounts).
@@ -976,33 +986,9 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
       )
     }
 
-    // 6. Send welcome email with credentials — only for single-account (recipient = child).
-    // Bulk flows distribute credentials via the admin out-of-band.
-    if (!result.isBulk && primaryUserId) {
-      try {
-        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(primaryUserId)
-        if (authUser?.user?.user_metadata?.temporary_password) {
-          const tempPassword = authUser.user.user_metadata.temporary_password
-          const dashboardUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'}/auth/signin`
-
-          await sendWelcomeEmailWithCredentials({
-            email: adminInvoice.recipient_email,
-            organizationName: adminInvoice.org_name,
-            temporaryPassword: tempPassword,
-            dashboardUrl,
-          })
-
-          await supabaseAdmin.auth.admin.updateUserById(primaryUserId, {
-            user_metadata: {
-              ...authUser.user.user_metadata,
-              temporary_password: undefined,
-            },
-          })
-        }
-      } catch (emailError) {
-        console.error(`Failed to send welcome email for admin invoice ${adminInvoiceId}:`, emailError)
-      }
-    }
+    // Note: welcome emails are sent at account-creation time (setup UI sends them with
+    // the temporary password shown to the admin). New users invited here via
+    // inviteUserByEmail receive the standard Supabase invite email automatically.
   } catch (error) {
     console.error(`Error in handleAdminInvoicePaid:`, error)
     throw error

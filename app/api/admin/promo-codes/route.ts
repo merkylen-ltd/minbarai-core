@@ -4,10 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/auth/admin'
 import { cookies } from 'next/headers'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
-})
+import { getStripe } from '@/lib/stripe/config'
 
 interface CreatePromoCodeRequest {
   code: string
@@ -21,6 +18,7 @@ interface CreatePromoCodeRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    const stripe = getStripe()
     const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const { data: { user } } = await supabase.auth.getUser()
@@ -60,9 +58,9 @@ export async function POST(request: NextRequest) {
     let currency: string | null = null
 
     if (body.discountType === 'amount_off') {
-      if (!body.amount || !body.currency) {
+      if (!body.amount || typeof body.amount !== 'number' || body.amount <= 0 || !body.currency) {
         return NextResponse.json(
-          { error: 'amount_off requires amount and currency' },
+          { error: 'amount_off requires a positive amount and currency' },
           { status: 400 }
         )
       }

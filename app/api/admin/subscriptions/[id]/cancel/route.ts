@@ -82,6 +82,30 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to update subscription status' }, { status: 500 })
     }
 
+    // Close active session immediately when cancelling now — access is revoked instantly
+    if (cancelImmediately) {
+      const now = new Date()
+      const { data: activeSession } = await adminClient
+        .from('usage_sessions')
+        .select('id, started_at, max_end_at')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .maybeSingle()
+      if (activeSession) {
+        const endedAt = new Date(Math.min(now.getTime(), new Date(activeSession.max_end_at).getTime()))
+        await adminClient
+          .from('usage_sessions')
+          .update({
+            status: 'closed',
+            ended_at: endedAt.toISOString(),
+            duration_seconds: Math.max(0, Math.floor((endedAt.getTime() - new Date(activeSession.started_at).getTime()) / 1000)),
+            updated_at: now.toISOString(),
+          })
+          .eq('id', activeSession.id)
+          .eq('status', 'active')
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: cancelImmediately 

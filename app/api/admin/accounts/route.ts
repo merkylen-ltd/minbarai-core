@@ -5,15 +5,7 @@ import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { sendAdminEmail } from '@/lib/email/resend'
 import { adminWelcomeNewUserEmail } from '@/lib/email/templates/admin-welcome-new-user'
-
-function generateTemporaryPassword(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*'
-  let password = ''
-  for (let i = 0; i < 16; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return password
-}
+import { generateSecurePassword } from '@/lib/auth/password-strength'
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,6 +40,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
     }
 
+    if (!Number.isInteger(durationDays) || durationDays <= 0) {
+      return NextResponse.json({ error: 'durationDays must be a positive integer' }, { status: 400 })
+    }
+
+    if (!Number.isInteger(sessionLimitMinutes) || sessionLimitMinutes <= 0) {
+      return NextResponse.json({ error: 'sessionLimitMinutes must be a positive integer' }, { status: 400 })
+    }
+
     // Check if account already exists
     const { data: existingUser, error: checkError } = await adminClient
       .from('users')
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate temporary password
-    const temporaryPassword = generateTemporaryPassword()
+    const temporaryPassword = generateSecurePassword()
 
     // Create auth user
     const { data, error: authError } = await adminClient.auth.admin.createUser({
@@ -76,7 +76,6 @@ export async function POST(request: NextRequest) {
       password: temporaryPassword,
       email_confirm: true,
       user_metadata: {
-        temporary_password: temporaryPassword,
         created_by_admin: true,
         created_at_timestamp: Date.now(),
       },
@@ -92,6 +91,9 @@ export async function POST(request: NextRequest) {
 
     const userId = data.user.id
 
+    // Set subscription active for durationDays from now
+    const subscriptionPeriodEnd = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000)
+
     // Create user record in public.users table
     const { error: upsertError } = await adminClient.from('users').upsert(
       {
@@ -99,6 +101,8 @@ export async function POST(request: NextRequest) {
         email: email.toLowerCase(),
         session_limit_minutes: sessionLimitMinutes,
         is_suspended: false,
+        subscription_status: 'active',
+        subscription_period_end: subscriptionPeriodEnd.toISOString(),
       },
       { onConflict: 'id' }
     )

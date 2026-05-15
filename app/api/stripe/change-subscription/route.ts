@@ -119,6 +119,14 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Ensure the price is active (not archived in Stripe)
+      if (!newPrice.active) {
+        return NextResponse.json(
+          { error: 'Selected plan is no longer available' },
+          { status: 400 }
+        )
+      }
+
       // Ensure the new price is for a subscription (not one-time)
       if (newPrice.type !== 'recurring') {
         return NextResponse.json(

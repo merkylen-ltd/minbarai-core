@@ -72,10 +72,17 @@ export async function activateSingleUserForInvoice(
   }
 
   const userId = authResponse.user.id
+  // Use upsert rather than update: the auth trigger that creates the public.users
+  // row may not have fired yet when this code runs, making a plain update a no-op.
   const { error: updateError } = await supabaseAdmin
     .from('users')
-    .update(updatePayload)
-    .eq('id', userId)
+    .upsert({
+      id: userId,
+      email: recipientEmail,
+      ...updatePayload,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
 
   if (updateError) throw updateError
   return userId
@@ -185,10 +192,18 @@ export async function activateAdminInvoiceAccounts(
     updatePayload.activated_at = new Date().toISOString()
   }
 
-  const { error: updateError } = await supabaseAdmin
+  // When fully activated, guard with activated_at IS NULL so a concurrent
+  // invoice.paid + invoice.payment_succeeded pair can't both write activated_at.
+  // The winning process sets it; the loser's update is silently a no-op (safe:
+  // activated_account_emails was already written by the winner).
+  const baseQuery = supabaseAdmin
     .from('admin_invoices')
     .update(updatePayload)
     .eq('id', adminInvoice.id)
+
+  const { error: updateError } = fullyActivated
+    ? await baseQuery.is('activated_at', null)
+    : await baseQuery
 
   if (updateError) {
     throw updateError

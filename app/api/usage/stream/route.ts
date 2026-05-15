@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import type { SSEEvent } from '@/types/usage-session'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
+import { isValidSubscriptionStatus } from '@/lib/subscription'
 
 // Type for usage session record
 interface UsageSessionRecord {
@@ -41,6 +42,40 @@ export async function GET(request: Request) {
 
     if (!user) {
       return new Response('Unauthorized', { status: 401 })
+    }
+
+    // Validate subscription before accepting the stream connection
+    const { data: subData } = await supabase
+      .from('users')
+      .select('subscription_status, subscription_period_end, is_suspended, customer_id')
+      .eq('id', user.id)
+      .single()
+
+    if (subData?.is_suspended) {
+      return new Response('Account suspended', { status: 403 })
+    }
+
+    if (subData && !isValidSubscriptionStatus(subData.subscription_status)) {
+      return new Response('Invalid subscription', { status: 403 })
+    }
+
+    // Admin-managed accounts: enforce subscription_period_end
+    if (
+      subData?.subscription_status === 'active' &&
+      !subData.customer_id &&
+      subData.subscription_period_end &&
+      new Date() > new Date(subData.subscription_period_end)
+    ) {
+      return new Response('Subscription expired', { status: 403 })
+    }
+
+    // Canceled Stripe subscriptions retain access until period end only
+    if (
+      subData?.subscription_status === 'canceled' &&
+      subData.subscription_period_end &&
+      new Date() > new Date(subData.subscription_period_end)
+    ) {
+      return new Response('Subscription period expired', { status: 403 })
     }
 
     console.log(`[Usage SSE] Stream connection opened for user ${user.id}`)
@@ -268,7 +303,7 @@ async function getCurrentUsageState(
       console.error('[Usage SSE] Error fetching user data:', userError)
     }
 
-    const limitSeconds = ((userData?.session_limit_minutes || 180) * 60)
+    const limitSeconds = ((userData?.session_limit_minutes ?? 180) * 60)
 
     // Calculate current session duration and check for expiry conditions
     let currentSessionSeconds = 0

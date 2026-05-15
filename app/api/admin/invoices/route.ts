@@ -7,10 +7,7 @@ import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 import { sendAdminInvoiceEmail } from '@/lib/admin/send-invoice-email'
 import { logNotification } from '@/lib/admin/notifications'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
-})
+import { getStripe } from '@/lib/stripe/config'
 
 interface CreateInvoiceRequest {
   recipientEmail: string
@@ -28,6 +25,7 @@ interface CreateInvoiceRequest {
 // POST /api/admin/invoices
 export async function POST(request: NextRequest) {
   try {
+    const stripe = getStripe()
     const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const { data: { user } } = await supabase.auth.getUser()
@@ -40,10 +38,30 @@ export async function POST(request: NextRequest) {
 
     const body: CreateInvoiceRequest = await request.json()
 
-    if (!body.recipientEmail || !body.amount || !body.currency || !body.description ||
-        !body.durationDays || !body.sessionLimitMinutes || !body.dueDate) {
+    if (!body.recipientEmail || !body.currency || !body.description || !body.dueDate) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
+
+    if (typeof body.amount !== 'number' || body.amount <= 0) {
+      return NextResponse.json(
+        { error: 'amount must be a positive number' },
+        { status: 400 }
+      )
+    }
+
+    if (!Number.isInteger(body.durationDays) || body.durationDays <= 0 || body.durationDays > 3650) {
+      return NextResponse.json(
+        { error: 'durationDays must be a positive integer between 1 and 3650' },
+        { status: 400 }
+      )
+    }
+
+    if (!Number.isInteger(body.sessionLimitMinutes) || body.sessionLimitMinutes <= 0 || body.sessionLimitMinutes > 100000) {
+      return NextResponse.json(
+        { error: 'sessionLimitMinutes must be a positive integer' },
         { status: 400 }
       )
     }
@@ -280,14 +298,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Increment promo code redemptions
+    // Increment promo code redemptions atomically (avoids concurrent under-count)
     if (body.promoCodeId) {
-      await adminClient
-        .from('promo_codes')
-        .update({
-          redemptions_count: (promoCodeRecord?.redemptions_count || 0) + 1,
-        })
-        .eq('id', body.promoCodeId)
+      await adminClient.rpc('increment_promo_redemptions', { promo_id: body.promoCodeId })
     }
 
     await logNotification({

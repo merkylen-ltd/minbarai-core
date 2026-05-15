@@ -248,27 +248,35 @@ export const setupRecognitionHandlers = (
       errorMessage = 'Connection Error'
       errorDetails = 'Unable to connect to speech recognition service. Please check your internet connection and try again.'
       variant = 'warning'
+      handlers.setIsRecording(false)
+      handlers.isUserStoppedRef.current = true
     } else if (event.error === 'auth') {
       errorMessage = 'Authentication Failed'
       errorDetails = 'VoiceFlow authentication failed. Please contact support if this issue persists.'
       variant = 'destructive'
+      handlers.setIsRecording(false)
+      handlers.isUserStoppedRef.current = true
     } else if (event.error === 'service') {
       // Check if it's a timeout error (common in development with hot reload)
       const isTimeoutError = event.message?.includes('Audio Timeout') || event.message?.includes('audio should be sent close to real time')
-      
+
       if (isTimeoutError) {
         // Don't stop recording - this is likely a temporary glitch from hot reload
         console.warn('[VoiceFlow] Audio timeout detected (likely due to hot reload) - continuing...')
         return // Silent recovery - don't show error to user
       }
-      
+
       errorMessage = 'Service Temporarily Unavailable'
       errorDetails = 'The speech recognition service is temporarily unavailable. Please stop and restart recording.'
       variant = 'warning'
+      handlers.setIsRecording(false)
+      handlers.isUserStoppedRef.current = true
     } else {
       errorMessage = 'Speech Recognition Error'
       errorDetails = `An unexpected error occurred: ${event.error}${event.message ? ` - ${event.message}` : ''}. Please try again or contact support if the problem persists.`
       variant = 'destructive'
+      handlers.setIsRecording(false)
+      handlers.isUserStoppedRef.current = true
     }
     
     handlers.onStatusChange({ 
@@ -330,25 +338,21 @@ export const setupRecognitionHandlers = (
   
   // Handle translation events from Voiceflow
   recognition.ontranslation = (e: any) => {
-    console.log('[Live Captioning] Translation event received:', e)
-    
     if (!e || !e.translated) {
-      console.warn('[Live Captioning] Translation event missing translated text:', e)
+      console.warn('[Live Captioning] Translation event missing translated text')
       return
     }
-    
+
     // Get source text length for hallucination detection
     // VoiceFlow sends the source text in e.sourceText or e.original
     const sourceLength = (e.sourceText || e.original || e.transcript || '')?.length || 0
-    
+
     // Validate and sanitize translation before displaying
     const validatedTranslation = validateTranslation(e.translated, e.translationId, sourceLength)
     if (!validatedTranslation) {
-      console.warn('[Live Captioning] Translation rejected by validation, original:', e.translated?.substring(0, 100))
+      console.warn('[Live Captioning] Translation rejected by validation')
       return
     }
-    
-    console.log('[Live Captioning] Translation passed validation:', validatedTranslation.substring(0, 100))
     
     // Metrics: measure translation latency from last final transcript to translation arrival
     if (handlers.lastFinalResultTimeRef.current != null) {

@@ -35,7 +35,7 @@ export async function POST(
     // Get user data first
     const { data: userData, error: fetchError } = await adminClient
       .from('users')
-      .select('email')
+      .select('email, subscription_period_end, subscription_status, customer_id')
       .eq('id', userId)
       .single()
 
@@ -43,13 +43,29 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Clear the admin suspension flag — leave subscription_status to Stripe
+    // Clear the admin suspension flag.
+    // For admin-managed accounts (no Stripe customer_id), also restore the period_end
+    // if it has already passed — otherwise the subscription expiry gates in ping/stream
+    // will immediately re-block the user even after the suspension is lifted.
+    const now = new Date()
+    const periodExpired =
+      !userData.subscription_period_end ||
+      new Date(userData.subscription_period_end) <= now
+
+    const updatePayload: Record<string, unknown> = {
+      is_suspended: false,
+      updated_at: now.toISOString(),
+    }
+
+    if (!userData.customer_id && periodExpired) {
+      // Extend by 30 days from now so the user regains immediate access
+      updatePayload.subscription_status = 'active'
+      updatePayload.subscription_period_end = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    }
+
     const { error: updateError } = await adminClient
       .from('users')
-      .update({
-        is_suspended: false,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', userId)
 
     if (updateError) {
@@ -68,6 +84,8 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: 'User activated successfully',
+      periodExtended: !userData.customer_id && periodExpired,
+      newPeriodEnd: updatePayload.subscription_period_end ?? userData.subscription_period_end,
     })
   } catch (error) {
     console.error('[Admin API] Exception in POST /api/admin/users/[id]/activate:', error)

@@ -62,6 +62,28 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to suspend user' }, { status: 500 })
     }
 
+    // Close any active usage session — suspended users must not continue recording
+    const now = new Date()
+    const { data: activeSession } = await adminClient
+      .from('usage_sessions')
+      .select('id, started_at, max_end_at')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .maybeSingle()
+    if (activeSession) {
+      const endedAt = new Date(Math.min(now.getTime(), new Date(activeSession.max_end_at).getTime()))
+      await adminClient
+        .from('usage_sessions')
+        .update({
+          status: 'closed',
+          ended_at: endedAt.toISOString(),
+          duration_seconds: Math.max(0, Math.floor((endedAt.getTime() - new Date(activeSession.started_at).getTime()) / 1000)),
+          updated_at: now.toISOString(),
+        })
+        .eq('id', activeSession.id)
+        .eq('status', 'active')
+    }
+
     // Send suspension email if requested
     if (sendEmail && userData.email) {
       const emailHtml = generateSuspensionEmailHtml(reason)

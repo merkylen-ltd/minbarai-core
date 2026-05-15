@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import LoadingButton from '@/components/forms/LoadingButton'
+import { generateSecurePassword } from '@/lib/auth/password-strength'
 
 type Step = 1 | 2 | 3
 type Mode = 'single' | 'bulk'
@@ -98,12 +99,6 @@ function CopyRow({ label, value, sensitive = false }: { label: string; value: st
   )
 }
 
-const generatePassword = (): string => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'
-  let pw = ''
-  for (let i = 0; i < 14; i++) pw += chars.charAt(Math.floor(Math.random() * chars.length))
-  return pw
-}
 
 export default function SetupPage() {
   const [mode, setMode] = useState<Mode>('single')
@@ -555,7 +550,7 @@ export default function SetupPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-neutral-300 mb-2">Session Limit (minutes/month) *</label>
+                <label className="block text-sm text-neutral-300 mb-2">Total Session Limit (minutes, lifetime) *</label>
                 <input
                   type="number"
                   name="sessionLimitMinutes"
@@ -700,7 +695,7 @@ export default function SetupPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setBulkForm(prev => ({ ...prev, password: generatePassword() }))}
+                  onClick={() => setBulkForm(prev => ({ ...prev, password: generateSecurePassword() }))}
                   className="px-4 py-3 bg-primary-700 hover:bg-primary-600 text-neutral-100 rounded-lg transition-colors font-medium text-sm"
                 >
                   Generate
@@ -723,7 +718,7 @@ export default function SetupPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-neutral-300 mb-2">Session Limit per Seat (min/mo) *</label>
+                <label className="block text-sm text-neutral-300 mb-2">Total Session Limit per Seat (minutes, lifetime) *</label>
                 <input
                   type="number"
                   name="sessionLimitMinutes"
@@ -850,7 +845,7 @@ export default function SetupPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-neutral-300 mb-2">Session Limit (min/mo) per seat</label>
+                <label className="block text-sm text-neutral-300 mb-2">Total Session Limit per seat (minutes, lifetime)</label>
                 <input
                   type="number"
                   name="sessionLimitMinutes"

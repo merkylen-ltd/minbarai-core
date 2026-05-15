@@ -69,6 +69,15 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
     }
   }
 
+  // Segment color logic:
+  // - typingText = orange (in progress)
+  // - last completed segment = green (just finished), but only while nothing is typing
+  // - all other completed segments = white (history)
+  const completedSegments = completedTranslations ? completedTranslations.split('\n') : []
+  const lastNonEmptyIdx = !typingText
+    ? completedSegments.reduce((found, s, i) => (s ? i : found), -1)
+    : -1
+
   return (
     <div 
       ref={fullscreenRef}
@@ -83,14 +92,14 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
           
           {/* Source Language Panel */}
           {showSourcePanel && (
-            <div className={`bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4 md:p-6 transition-all duration-500 ease-in-out ${
+            <div className={`bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4 md:p-6 transition-all duration-500 ease-in-out ${
               isFullscreen ? 'flex-1 flex flex-col min-h-0' : ''
             }`}>
               <div className="relative flex items-center justify-center mb-4">
                 <div className="absolute left-0">
                   <LogoBrand size="md" variant="subtle" className="opacity-60 hover:opacity-80 transition-opacity duration-200" />
                 </div>
-                <h3 className="text-lg font-heading text-white">
+                <h3 className="text-lg font-heading text-neutral-0">
                   {sourceConfig.name} Original
                 </h3>
                 <div className="absolute right-0 flex items-center space-x-2">
@@ -104,18 +113,18 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
               
               <div
                 ref={sourceScrollRef}
-                className={`${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : 'h-96 overflow-y-auto'} p-4 bg-white/5 rounded-lg border border-white/10 leading-relaxed custom-scrollbar ${
+                className={`${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : 'h-96 overflow-y-auto'} p-4 bg-primary-900/40 rounded-xl border border-accent-500/10 leading-relaxed custom-scrollbar ${
                   getFontClass(sourceConfig.family)
                 }`}
-                style={{ 
+                style={{
                   direction: sourceConfig.isRTL ? 'rtl' : 'ltr',
                   textAlign: sourceConfig.isRTL ? 'right' : 'left',
                   fontSize: `${textSize}px`
                 }}
               >
-                <span className="text-white">{sourceText}</span>
-                <span className="text-orange-400 italic">{interimText}</span>
-                <span className={`inline-block w-0.5 h-6 bg-accent-400 animate-blink-cursor ${
+                <span className="text-neutral-0">{sourceText}</span>
+                {interimText && <span className="text-accent-300 italic">{interimText}</span>}
+                <span className={`inline-block w-0.5 h-[1em] align-middle bg-accent-400 animate-blink-cursor ${
                   sourceConfig.isRTL ? 'mr-1' : 'ml-1'
                 }`} />
               </div>
@@ -123,14 +132,14 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
           )}
 
           {/* Target Language Panel */}
-          <div className={`bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4 md:p-6 transition-all duration-500 ease-in-out ${
+          <div className={`bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4 md:p-6 transition-all duration-500 ease-in-out ${
             isFullscreen ? 'flex-1 flex flex-col min-h-0' : ''
           }`}>
             <div className="relative flex items-center justify-center mb-4">
               <div className="absolute left-0">
                 <LogoBrand size="md" variant="subtle" className="opacity-60 hover:opacity-80 transition-opacity duration-200" />
               </div>
-              <h3 className="text-lg font-heading text-white">{targetConfig.name} Translation</h3>
+              <h3 className="text-lg font-heading text-neutral-0">{targetConfig.name} Translation</h3>
               <div className="absolute right-0 flex items-center space-x-2">
                 <div className="text-sm text-neutral-400">AI Powered</div>
                 {targetConfig.isRTL && (
@@ -147,7 +156,7 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
             
             <div
               ref={targetScrollRef}
-              className={`${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : showSourcePanel ? 'h-96 overflow-y-auto' : 'h-[600px] overflow-y-auto'} p-4 bg-white/5 rounded-lg border border-white/10 leading-relaxed custom-scrollbar flex flex-col justify-center ${
+              className={`${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : showSourcePanel ? 'h-96 overflow-y-auto' : 'h-[600px] overflow-y-auto'} p-4 bg-primary-900/40 rounded-xl border border-accent-500/10 leading-relaxed custom-scrollbar ${
                 getFontClass(targetConfig.family)
               }`}
               style={{
@@ -157,29 +166,38 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
               }}
             >
               {!completedTranslations && !typingText && isRecording ? (
-                <div className="text-center text-neutral-400 opacity-60" aria-live="polite" aria-label="Waiting for speech">
-                  <div className="flex items-center justify-center gap-2">
-                    <div className="w-1.5 h-1.5 bg-accent-400 rounded-full animate-pulse"></div>
-                    <span>Waiting for speech…</span>
-                  </div>
+                <div className="flex items-center gap-2 text-neutral-400 opacity-60" aria-live="polite" aria-label="Waiting for speech">
+                  <div className="w-1.5 h-1.5 bg-accent-400 rounded-full animate-pulse flex-shrink-0"></div>
+                  <span>Waiting for speech…</span>
                 </div>
               ) : (
-                <>
-                  {/* Completed translations in white */}
-                  {completedTranslations && (
-                    <span className="text-white">{completedTranslations}</span>
+                <div className="flex flex-col gap-3 items-start w-full">
+                  {/* History segments (white) and the most-recently-completed segment (green) */}
+                  {completedSegments.map((segment, i) =>
+                    segment ? (
+                      <p key={i} className={i === lastNonEmptyIdx ? 'text-green-400' : 'text-neutral-0'}>
+                        {segment}
+                      </p>
+                    ) : null
                   )}
 
-                  {/* Currently typing text in orange */}
+                  {/* Currently incoming segment — orange while typing */}
                   {typingText && (
-                    <span className="text-orange-500">{typingText}</span>
+                    <p className="text-orange-400">
+                      {typingText}
+                      <span className={`inline-block w-0.5 h-[1em] align-middle bg-orange-400 animate-blink-cursor ${
+                        targetConfig.isRTL ? 'mr-1' : 'ml-1'
+                      }`} />
+                    </p>
                   )}
 
-                  {/* Blinking cursor */}
-                  <span className={`inline-block w-0.5 h-6 bg-accent-400 animate-blink-cursor ${
-                    targetConfig.isRTL ? 'mr-1' : 'ml-1'
-                  }`} />
-                </>
+                  {/* Idle cursor when not typing but have content */}
+                  {!typingText && (completedTranslations || isRecording) && (
+                    <span className={`inline-block w-0.5 h-[1em] align-middle bg-accent-400/50 animate-blink-cursor ${
+                      targetConfig.isRTL ? 'mr-1' : 'ml-1'
+                    }`} />
+                  )}
+                </div>
               )}
             </div>
           </div>
