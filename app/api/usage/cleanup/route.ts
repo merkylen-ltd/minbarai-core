@@ -1,26 +1,39 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
+
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// TTL for session expiry (3 minutes without ping = expired)
-const TTL_SECONDS = 3 * 60
+// Must match ping/route.ts and supabase/database.sql — see lib/usage/constants.ts
+const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
 
 /**
  * Stale Session Cleanup API
- * 
+ *
  * This endpoint should be called periodically (e.g., every 5 minutes via cron)
  * to clean up sessions that:
  * 1. Have exceeded their TTL (no ping for 3+ minutes)
  * 2. Have hit their max_end_at cap
- * 
+ *
  * This is critical for accurate usage tracking - without cleanup,
  * stale sessions would never be closed and usage wouldn't be recorded.
- * 
- * Usage:
- * - POST /api/usage/cleanup - Run cleanup (requires CRON_SECRET header for production)
- * - GET /api/usage/cleanup - Check status (no auth required)
+ *
+ * SETUP REQUIRED:
+ * This endpoint is triggered by .github/workflows/usage-cleanup-cron.yml.
+ * Configure these GitHub Actions secrets in the repo settings:
+ *   - CRON_SECRET: Match the CRON_SECRET env var on Cloud Run production service
+ *   - SITE_URL: Production URL (e.g., https://minbarai.com)
+ *
+ * Without these secrets configured, the cron will fail silently.
+ * Verify cron is running by:
+ *   1. Checking GitHub Actions runs: github.com/YourRepo/actions
+ *   2. Calling GET /api/usage/cleanup in production (requires auth header)
+ *
+ * Usage (both methods require Authorization: Bearer <CRON_SECRET>):
+ * - POST /api/usage/cleanup - Run cleanup
+ * - GET /api/usage/cleanup - Check stale session count without running cleanup
  */
 
 // Lazy initialization of Supabase admin client
@@ -53,9 +66,32 @@ interface CleanupResult {
 }
 
 /**
+ * Shared auth guard for both GET and POST.
+ * Always requires CRON_SECRET — returns an error response if auth fails,
+ * or null if auth passes.  Fail-secure: if CRON_SECRET is not configured
+ * the endpoint is unavailable (503) rather than open (2xx).
+ */
+function requireCronAuth(request: Request): NextResponse | null {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) {
+    console.error('[Cleanup] CRON_SECRET is not configured — endpoint unavailable')
+    return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
+  }
+  const authHeader = request.headers.get('authorization')
+  if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+    console.warn('[Cleanup] Unauthorized request')
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return null
+}
+
+/**
  * GET - Check cleanup status and stale session count
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const authError = requireCronAuth(request)
+  if (authError) return authError
+
   try {
     const supabaseAdmin = getSupabaseAdmin()
     const now = new Date()
@@ -94,19 +130,10 @@ export async function GET() {
  * POST - Execute cleanup of stale sessions
  */
 export async function POST(request: Request) {
+  const authError = requireCronAuth(request)
+  if (authError) return authError
+
   try {
-    // In production, verify the CRON_SECRET to prevent unauthorized cleanup
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = request.headers.get('authorization')
-    
-    // Skip auth check in development or if CRON_SECRET not set
-    if (cronSecret && process.env.NODE_ENV === 'production') {
-      if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
-        console.warn('[Cleanup] Unauthorized cleanup attempt')
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-    }
-    
     const supabaseAdmin = getSupabaseAdmin()
     const now = new Date()
     const ttlCutoff = new Date(now.getTime() - TTL_SECONDS * 1000)
@@ -142,6 +169,14 @@ export async function POST(request: Request) {
     for (const session of staleSessions) {
       const sessionStarted = new Date(session.started_at)
       const sessionLastSeen = new Date(session.last_seen_at)
+
+      // Skip sessions with no max_end_at — new Date(null) = epoch (1970),
+      // which would set ended_at to 1970 and corrupt billing records.
+      if (!session.max_end_at) {
+        console.warn(`[Cleanup] Session ${session.id} has null max_end_at — skipping to avoid data corruption`)
+        continue
+      }
+
       const sessionMaxEnd = new Date(session.max_end_at)
       
       // Determine if session hit cap or TTL expired

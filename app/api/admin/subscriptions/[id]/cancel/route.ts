@@ -34,7 +34,7 @@ export async function POST(
     // Get user subscription data
     const { data: userData, error: fetchError } = await adminClient
       .from('users')
-      .select('stripe_subscription_id, subscription_period_end')
+      .select('subscription_id, subscription_period_end')
       .eq('id', userId)
       .single()
 
@@ -42,7 +42,7 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    if (!userData.stripe_subscription_id) {
+    if (!userData.subscription_id) {
       return NextResponse.json({ error: 'No active subscription found' }, { status: 404 })
     }
 
@@ -50,9 +50,9 @@ export async function POST(
     if (stripe) {
       try {
         if (cancelImmediately) {
-          await stripe.subscriptions.cancel(userData.stripe_subscription_id)
+          await stripe.subscriptions.cancel(userData.subscription_id)
         } else {
-          await stripe.subscriptions.update(userData.stripe_subscription_id, {
+          await stripe.subscriptions.update(userData.subscription_id, {
             cancel_at_period_end: true,
           })
         }
@@ -80,6 +80,30 @@ export async function POST(
     if (updateError) {
       console.error('[Admin API] Error updating user subscription status:', updateError)
       return NextResponse.json({ error: 'Failed to update subscription status' }, { status: 500 })
+    }
+
+    // Close active session immediately when cancelling now — access is revoked instantly
+    if (cancelImmediately) {
+      const now = new Date()
+      const { data: activeSession } = await adminClient
+        .from('usage_sessions')
+        .select('id, started_at, max_end_at')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .maybeSingle()
+      if (activeSession) {
+        const endedAt = new Date(Math.min(now.getTime(), new Date(activeSession.max_end_at).getTime()))
+        await adminClient
+          .from('usage_sessions')
+          .update({
+            status: 'closed',
+            ended_at: endedAt.toISOString(),
+            duration_seconds: Math.max(0, Math.floor((endedAt.getTime() - new Date(activeSession.started_at).getTime()) / 1000)),
+            updated_at: now.toISOString(),
+          })
+          .eq('id', activeSession.id)
+          .eq('status', 'active')
+      }
     }
 
     return NextResponse.json({

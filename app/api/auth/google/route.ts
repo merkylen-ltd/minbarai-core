@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting check
-    const rateLimitResult = checkRateLimit(request, RATE_LIMIT_CONFIGS.AUTH)
+    const rateLimitResult = await checkRateLimit(request, RATE_LIMIT_CONFIGS.AUTH)
     
     if (!rateLimitResult.allowed) {
       console.warn(`Rate limit exceeded for Google auth check`)

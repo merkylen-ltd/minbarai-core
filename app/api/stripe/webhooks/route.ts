@@ -2,6 +2,16 @@ import { createClient } from '@supabase/supabase-js'
 import { stripe } from '@/lib/stripe/config'
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import {
+  sendPaymentFailedEmail,
+  sendPaymentActionRequiredEmail,
+  sendTrialEndingEmail,
+  sendSubscriptionCancelledEmail,
+  sendRefundNotificationEmail,
+  sendDisputeAlertEmail,
+} from '@/lib/email/resend'
+import { activateAdminInvoiceAccounts, activateSingleUserForInvoice } from '@/lib/admin/activate-invoice'
+import { logNotification } from '@/lib/admin/notifications'
 
 export const runtime = 'nodejs'
 
@@ -41,49 +51,41 @@ function getSupabaseAdmin() {
 
 // Webhook security configuration
 const WEBHOOK_MAX_SIZE = 1024 * 1024 // 1MB max payload size
-const WEBHOOK_RATE_LIMIT_WINDOW = 60 * 1000 // 1 minute
+const WEBHOOK_RATE_LIMIT_WINDOW = 60 // 1 minute in seconds
 const WEBHOOK_RATE_LIMIT_MAX_REQUESTS = 100 // 100 requests per minute per IP
 
-// In-memory rate limiting for webhooks
-// Note: In serverless, this resets on cold starts, but provides basic protection
-// For production distributed systems, consider using Redis or database-backed rate limiting
-const webhookRateLimitMap = new Map<string, { count: number; resetTime: number }>()
-
 /**
- * Check webhook rate limit for an IP
- * Cleans up expired entries on each check to prevent memory growth
+ * Check webhook rate limit for an IP using database-backed rate limiting.
+ * Uses RPC function check_and_record_webhook_attempt() for atomic operation
+ * that persists across Cloud Run cold starts.
  */
-function checkWebhookRateLimit(ip: string): boolean {
-  const now = Date.now()
-  
-  // Clean up expired entries (probabilistic to reduce overhead)
-  if (Math.random() < 0.1) {
-    const entries = Array.from(webhookRateLimitMap.entries())
-    for (let i = 0; i < entries.length; i++) {
-      const [key, data] = entries[i]
-      if (now > data.resetTime) {
-        webhookRateLimitMap.delete(key)
-      }
+async function checkWebhookRateLimit(ip: string): Promise<boolean> {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const { data, error } = await supabaseAdmin
+      .rpc('check_and_record_webhook_attempt', {
+        p_ip_address: ip,
+        p_max_requests: WEBHOOK_RATE_LIMIT_MAX_REQUESTS,
+        p_window_seconds: WEBHOOK_RATE_LIMIT_WINDOW
+      })
+
+    if (error) {
+      console.error(`Rate limit check failed for IP ${ip}:`, error)
+      // On error, allow the request to pass through (fail open, not closed)
+      return true
     }
-  }
-  
-  const record = webhookRateLimitMap.get(ip)
-  
-  if (!record || now > record.resetTime) {
-    // New window - reset count
-    webhookRateLimitMap.set(ip, {
-      count: 1,
-      resetTime: now + WEBHOOK_RATE_LIMIT_WINDOW
-    })
+
+    if (!data || data.length === 0) {
+      console.error(`No rate limit data returned for IP ${ip}`)
+      return true
+    }
+
+    return data[0].is_allowed
+  } catch (error) {
+    console.error(`Error in checkWebhookRateLimit for IP ${ip}:`, error)
+    // On error, allow the request to pass through
     return true
   }
-  
-  if (record.count >= WEBHOOK_RATE_LIMIT_MAX_REQUESTS) {
-    return false
-  }
-  
-  record.count++
-  return true
 }
 
 /**
@@ -167,6 +169,50 @@ async function updateWebhookEventStatus(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Email / formatting helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve a Stripe customer's email address, or null if not found.
+ * Used by handlers that receive only a customer ID.
+ */
+async function getUserEmailFromCustomer(customerId: string): Promise<string | null> {
+  try {
+    const customer = await stripe!.customers.retrieve(customerId)
+    if (customer.deleted) return null
+    return customer.email ?? null
+  } catch (err) {
+    console.error(`[Webhook] Failed to retrieve customer ${customerId} for email:`, err)
+    return null
+  }
+}
+
+/**
+ * Format a Stripe amount (in cents) as a human-readable currency string.
+ * e.g. formatStripeAmount(9900, 'eur') → '€99.00'
+ */
+function formatStripeAmount(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amountCents / 100)
+  } catch {
+    // Fallback for exotic currencies not supported by Intl
+    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`
+  }
+}
+
+/** Format a Unix timestamp as a long-form date string, e.g. "April 20, 2026". */
+function formatUnixDate(unix: number): string {
+  return new Date(unix * 1000).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
 function getClientIP(request: Request): string {
   // Cloud Run headers (preferred)
   const cloudTraceContext = request.headers.get('x-cloud-trace-context')
@@ -230,6 +276,11 @@ const relevantEvents = new Set([
   
   // Refund events
   'charge.refunded',
+  
+  // Admin invoice events
+  'invoice.paid',
+  'invoice.voided',
+  'invoice.marked_uncollectible',
 ])
 
 export async function POST(request: Request) {
@@ -246,7 +297,8 @@ export async function POST(request: Request) {
   }
   
   // Security: Rate limiting
-  if (!checkWebhookRateLimit(clientIP)) {
+  const isRateLimitAllowed = await checkWebhookRateLimit(clientIP)
+  if (!isRateLimitAllowed) {
     console.warn(`Webhook rate limit exceeded for IP: ${clientIP}`)
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
@@ -386,6 +438,21 @@ export async function POST(request: Request) {
         const refundedCharge = event.data.object as Stripe.Charge
         await handleChargeRefunded(refundedCharge)
         break
+      
+      case 'invoice.paid':
+        const paidInvoice = event.data.object as Stripe.Invoice
+        await handleInvoicePaid(paidInvoice)
+        break
+      
+      case 'invoice.voided':
+        const voidedInvoice = event.data.object as Stripe.Invoice
+        await handleInvoiceStatusUpdate(voidedInvoice, 'void')
+        break
+      
+      case 'invoice.marked_uncollectible':
+        const uncollectibleInvoice = event.data.object as Stripe.Invoice
+        await handleInvoiceStatusUpdate(uncollectibleInvoice, 'uncollectible')
+        break
     }
 
     const processingTime = Date.now() - startTime
@@ -432,14 +499,19 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     
     console.log(`Updating user ${user_id} subscription to status: ${subscription.status}`)
 
+    // Map Stripe statuses to the DB CHECK constraint set.
+    // 'trialing' is valid in Stripe but not in our schema — treat as 'active'
+    // so the DB update doesn't fail and Stripe doesn't retry the webhook forever.
+    const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
+
     const supabaseAdmin = getSupabaseAdmin()
     const { error } = await supabaseAdmin
       .from('users')
       .update({
-        subscription_status: subscription.status,
+        subscription_status: dbStatus,
         subscription_id: subscription.id,
         customer_id: session.customer as string,
-        subscription_period_end: subscription.current_period_end 
+        subscription_period_end: subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
         updated_at: new Date().toISOString(),
@@ -484,13 +556,15 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription) {
     console.log(`Updating user ${supabaseUserId} subscription to status: ${subscription.status}`)
 
     const supabaseAdmin = getSupabaseAdmin()
+    const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({
         subscription_id: subscription.id,
-        subscription_status: subscription.status,
+        subscription_status: dbStatus,
         customer_id: customer.id,
-        subscription_period_end: subscription.current_period_end 
+        subscription_period_end: subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
         updated_at: new Date().toISOString(),
@@ -523,7 +597,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     let supabaseUserId = customer.metadata?.supabase_user_id
     
     if (!supabaseUserId) {
-      console.log(`No supabase user id in metadata, trying to find by email: ${customer.email}`)
+      console.log(`No supabase user id in metadata for customer ${customer.id}, falling back to email lookup`)
       
       // Try to find user by email as fallback
       if (customer.email) {
@@ -573,6 +647,18 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     }
 
     console.log(`Successfully canceled user ${supabaseUserId} subscription`)
+
+    // Send cancellation confirmation email (fire-and-forget)
+    if (customer.email && subscriptionPeriodEnd) {
+      const periodEndFormatted = new Date(subscriptionPeriodEnd).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+      sendSubscriptionCancelledEmail(customer.email, periodEndFormatted).catch((err) =>
+        console.error('[Webhook] sendSubscriptionCancelledEmail failed:', err)
+      )
+    }
   } catch (error) {
     console.error(`Error in handleSubscriptionDeleted for subscription ${subscription.id}:`, error)
     throw error
@@ -581,14 +667,39 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
 async function handleTrialWillEnd(subscription: Stripe.Subscription) {
   console.log(`Trial ending soon for subscription: ${subscription.id}`)
-  // TODO: Send email notification to user about trial ending
-  // You can implement email notifications here using your email service
+
+  const email = await getUserEmailFromCustomer(subscription.customer as string)
+  if (!email) {
+    console.warn(`[Webhook] handleTrialWillEnd: no email for customer ${subscription.customer}`)
+    return
+  }
+
+  const trialEndDate = subscription.trial_end
+    ? formatUnixDate(subscription.trial_end)
+    : 'soon'
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'
+  const addPaymentUrl = `${siteUrl}/dashboard`
+
+  // Fire-and-forget — email failure must not cause webhook retry
+  sendTrialEndingEmail(email, trialEndDate, addPaymentUrl).catch((err) =>
+    console.error('[Webhook] sendTrialEndingEmail failed:', err)
+  )
 }
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   try {
     console.log(`Invoice payment succeeded: ${invoice.id}`)
-    
+
+    // Admin invoices: route through the same activation path as invoice.paid.
+    // Stripe fires BOTH invoice.paid AND invoice.payment_succeeded for the same
+    // payment, but many accounts only have payment_succeeded enabled on their
+    // webhook endpoint. Processing either one (idempotent via admin_invoices
+    // .activated_at guard) makes the flow robust to that config drift.
+    if (invoice.metadata?.minbarai_type === 'admin_invoice') {
+      await handleAdminInvoicePaid(invoice)
+      return
+    }
+
     if (invoice.subscription) {
       const subscription = await stripe!.subscriptions.retrieve(
         invoice.subscription as string
@@ -613,8 +724,22 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
       await handleSubscriptionChange(subscription)
     }
     
-    // TODO: Send email notification to user about payment failure
-    // Implement notification logic here
+    // Send payment-failed email (fire-and-forget)
+    const toEmail = invoice.customer_email
+    if (toEmail) {
+      const amount = formatStripeAmount(invoice.amount_due, invoice.currency)
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com'
+      const updatePaymentUrl = `${siteUrl}/dashboard`
+      const nextRetryDate = invoice.next_payment_attempt
+        ? formatUnixDate(invoice.next_payment_attempt)
+        : undefined
+
+      sendPaymentFailedEmail(toEmail, amount, updatePaymentUrl, nextRetryDate).catch((err) =>
+        console.error('[Webhook] sendPaymentFailedEmail failed:', err)
+      )
+    } else {
+      console.warn(`[Webhook] handleInvoicePaymentFailed: no email on invoice ${invoice.id}`)
+    }
   } catch (error) {
     console.error(`Error in handleInvoicePaymentFailed for invoice ${invoice.id}:`, error)
     throw error
@@ -623,8 +748,20 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
 
 async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice) {
   console.log(`Invoice requires payment action: ${invoice.id}`)
-  // TODO: Send email notification to user about required action
-  // This happens when 3D Secure authentication is required
+
+  const toEmail = invoice.customer_email
+  if (!toEmail) {
+    console.warn(`[Webhook] handleInvoicePaymentActionRequired: no email on invoice ${invoice.id}`)
+    return
+  }
+
+  const amount = formatStripeAmount(invoice.amount_due, invoice.currency)
+  const invoiceUrl = invoice.hosted_invoice_url || (process.env.NEXT_PUBLIC_SITE_URL || 'https://minbarai.com') + '/dashboard'
+
+  // Fire-and-forget
+  sendPaymentActionRequiredEmail(toEmail, amount, invoiceUrl).catch((err) =>
+    console.error('[Webhook] sendPaymentActionRequiredEmail failed:', err)
+  )
 }
 
 async function handleCustomerUpdated(customer: Stripe.Customer) {
@@ -651,7 +788,7 @@ async function handleCustomerUpdated(customer: Stripe.Customer) {
       if (error) {
         console.error(`Failed to update user ${supabaseUserId} email:`, error)
       } else {
-        console.log(`Updated user ${supabaseUserId} email to ${customer.email}`)
+        console.log(`Updated email for user ${supabaseUserId} from Stripe customer ${customer.id}`)
       }
     }
   } catch (error) {
@@ -682,19 +819,230 @@ async function handleCustomerDeleted(customer: Stripe.Customer) {
 }
 
 async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`Payment intent failed: ${paymentIntent.id}`)
-  // TODO: Track failed payment intents for monitoring
-  // You might want to send notifications or track these for analytics
+  console.log(
+    `Payment intent failed: ${paymentIntent.id}, customer: ${paymentIntent.customer}, ` +
+    `amount: ${paymentIntent.amount} ${paymentIntent.currency}, ` +
+    `last_error: ${paymentIntent.last_payment_error?.message ?? 'none'}`
+  )
+  // Subscription payment failures surface as invoice.payment_failed (which we handle above).
+  // Payment-intent-level failures typically cover one-off charges; log is sufficient for now.
 }
 
 async function handleDisputeCreated(dispute: Stripe.Dispute) {
   console.log(`Dispute created: ${dispute.id} for charge: ${dispute.charge}`)
-  // TODO: Alert admin about dispute
-  // Disputes require immediate attention - consider sending alerts
+
+  const amount = formatStripeAmount(dispute.amount, dispute.currency)
+  const chargeId = typeof dispute.charge === 'string' ? dispute.charge : dispute.charge.id
+
+  // Fire-and-forget — all ADMIN_EMAILS receive the alert
+  sendDisputeAlertEmail({
+    disputeId: dispute.id,
+    chargeId,
+    amount,
+    reason: dispute.reason,
+  }).catch((err) => console.error('[Webhook] sendDisputeAlertEmail failed:', err))
 }
 
 async function handleChargeRefunded(charge: Stripe.Charge) {
-  console.log(`Charge refunded: ${charge.id}`)
-  // TODO: Handle refund logic if needed
-  // You might want to update user status or notify them
+  console.log(`Charge refunded: ${charge.id}, amount_refunded: ${charge.amount_refunded} ${charge.currency}`)
+
+  // Retrieve customer email — charge.billing_details.email is preferred; fall back to customer lookup
+  let toEmail: string | null = charge.billing_details?.email ?? null
+  if (!toEmail && charge.customer) {
+    const customerId = typeof charge.customer === 'string' ? charge.customer : charge.customer.id
+    toEmail = await getUserEmailFromCustomer(customerId)
+  }
+
+  if (!toEmail) {
+    console.warn(`[Webhook] handleChargeRefunded: no email for charge ${charge.id}`)
+    return
+  }
+
+  const amount = formatStripeAmount(charge.amount_refunded, charge.currency)
+
+  // Fire-and-forget
+  sendRefundNotificationEmail(toEmail, amount).catch((err) =>
+    console.error('[Webhook] sendRefundNotificationEmail failed:', err)
+  )
+}
+
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  try {
+    console.log(`Invoice paid: ${invoice.id}`)
+
+    // Route based on invoice type
+    if (invoice.subscription) {
+      // Subscription renewal — handle via existing subscription flow
+      const subscription = await stripe!.subscriptions.retrieve(
+        invoice.subscription as string
+      )
+      await handleSubscriptionChange(subscription)
+    } else if (invoice.metadata?.minbarai_type === 'admin_invoice') {
+      // Admin invoice — activate user account
+      await handleAdminInvoicePaid(invoice)
+    } else {
+      // Unknown one-off invoice — skip (no metadata)
+      console.log(`Skipping one-off invoice ${invoice.id} with no metadata`)
+    }
+  } catch (error) {
+    console.error(`Error in handleInvoicePaid for invoice ${invoice.id}:`, error)
+    throw error
+  }
+}
+
+async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+    const adminInvoiceId = invoice.metadata?.admin_invoice_id
+
+    console.log(`Processing admin invoice paid: ${invoice.id} (admin_invoice_id: ${adminInvoiceId})`)
+
+    if (!adminInvoiceId) {
+      console.error(`Admin invoice paid event missing admin_invoice_id metadata: ${invoice.id}`)
+      throw new Error('Missing admin_invoice_id in metadata')
+    }
+
+    // 1. Fetch admin_invoices row
+    const { data: adminInvoice, error: fetchError } = await supabaseAdmin
+      .from('admin_invoices')
+      .select('*')
+      .eq('stripe_invoice_id', invoice.id)
+      .single()
+
+    if (fetchError || !adminInvoice) {
+      console.error(`Admin invoice not found in DB for stripe invoice ${invoice.id}`)
+      throw new Error(`Admin invoice record not found`)
+    }
+
+    // 2. Check idempotency: if fully activated, skip.
+    // For multi-account invoices the activation lib uses per-email idempotency via
+    // activated_account_emails so a Stripe retry only re-activates emails that did
+    // not succeed before.
+    if (adminInvoice.activated_at) {
+      console.log(`Admin invoice ${adminInvoiceId} already activated at ${adminInvoice.activated_at}, skipping`)
+      return
+    }
+
+    // 3. Extract activation parameters — Stripe metadata is primary source,
+    //    DB record is the fallback (metadata can be absent if invoice was created
+    //    outside the normal flow or metadata was stripped by Stripe).
+    const durationDays =
+      parseInt(invoice.metadata?.duration_days || '0', 10) || adminInvoice.duration_days
+    const sessionLimitMinutes =
+      parseInt(invoice.metadata?.session_limit_minutes || '0', 10) || adminInvoice.session_limit_minutes
+
+    if (!durationDays || !sessionLimitMinutes) {
+      throw new Error(`Missing duration_days or session_limit_minutes for admin invoice ${adminInvoiceId}`)
+    }
+
+    // 4. Activate target accounts (single recipient OR bulk child accounts).
+    // activateAdminInvoiceAccounts handles per-email idempotency, child customer_id
+    // isolation, and atomic activated_account_emails persistence before we throw.
+    const result = await activateAdminInvoiceAccounts(
+      adminInvoice,
+      { durationDays, sessionLimitMinutes },
+      supabaseAdmin,
+      activateUserForAdminInvoice,
+    )
+
+    const primaryUserId = result.newlyActivated[0]?.userId || adminInvoice.supabase_user_id || null
+
+    console.log(
+      `Admin invoice ${adminInvoiceId} activated ${result.newlyActivated.length + result.previouslyActivated.length}/${result.targets.length} account(s)`,
+    )
+
+    // Log activity feed entry (idempotent-friendly — only on successful full activation)
+    if (result.failures.length === 0 && result.newlyActivated.length > 0) {
+      await logNotification({
+        type: 'invoice_paid',
+        title: result.isBulk
+          ? `Paid bulk invoice · ${result.newlyActivated.length} seats activated`
+          : `Paid invoice for ${adminInvoice.recipient_email}`,
+        message: result.isBulk
+          ? `Activated ${result.newlyActivated.length}/${result.targets.length} child account(s). Billing: ${adminInvoice.recipient_email}.`
+          : `Subscription activated for ${adminInvoice.recipient_email}.`,
+        actorEmail: 'stripe-webhook',
+        targetEmail: adminInvoice.recipient_email,
+        metadata: {
+          invoice_id: adminInvoiceId,
+          stripe_invoice_id: invoice.id,
+          amount_cents: invoice.amount_paid,
+          currency: invoice.currency,
+          is_bulk: result.isBulk,
+          activated: result.newlyActivated.map(n => n.email),
+        },
+        client: supabaseAdmin,
+      })
+    }
+
+    // If any activation failed, throw so Stripe retries the webhook. Already-activated
+    // emails are skipped via activated_account_emails, so retries are safe.
+    if (result.failures.length > 0) {
+      for (const f of result.failures) {
+        console.error(`Failed to activate ${f.email} for admin invoice ${adminInvoiceId}:`, f.error)
+      }
+      throw new Error(
+        `Partial activation for admin invoice ${adminInvoiceId}: ${result.failures.length} of ${result.targets.length} failed — Stripe will retry`,
+      )
+    }
+
+    // Note: welcome emails are sent at account-creation time (setup UI sends them with
+    // the temporary password shown to the admin). New users invited here via
+    // inviteUserByEmail receive the standard Supabase invite email automatically.
+  } catch (error) {
+    console.error(`Error in handleAdminInvoicePaid:`, error)
+    throw error
+  }
+}
+
+async function activateUserForAdminInvoice(
+  recipientEmail: string,
+  durationDays: number,
+  sessionLimitMinutes: number,
+  stripeCustomerId: string | null
+): Promise<string> {
+  // Webhook path — invite the user if they don't exist (first-payment flow).
+  return activateSingleUserForInvoice(
+    getSupabaseAdmin(),
+    recipientEmail,
+    durationDays,
+    sessionLimitMinutes,
+    stripeCustomerId,
+    { inviteIfMissing: true },
+  )
+}
+
+async function handleInvoiceStatusUpdate(
+  invoice: Stripe.Invoice,
+  status: 'void' | 'uncollectible'
+) {
+  try {
+    console.log(`Invoice status update: ${invoice.id} → ${status}`)
+
+    const supabaseAdmin = getSupabaseAdmin()
+
+    // Only handle admin invoices
+    if (invoice.metadata?.minbarai_type !== 'admin_invoice') {
+      console.log(`Skipping non-admin invoice status update: ${invoice.id}`)
+      return
+    }
+
+    // Update admin_invoices table
+    const { error: updateError } = await supabaseAdmin
+      .from('admin_invoices')
+      .update({
+        status: status,
+      })
+      .eq('stripe_invoice_id', invoice.id)
+
+    if (updateError) {
+      console.error(`Failed to update admin invoice status: ${invoice.id}`, updateError)
+      throw updateError
+    }
+
+    console.log(`Admin invoice ${invoice.id} status updated to ${status}`)
+  } catch (error) {
+    console.error(`Error in handleInvoiceStatusUpdate:`, error)
+    throw error
+  }
 }

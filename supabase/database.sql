@@ -22,7 +22,10 @@ DROP FUNCTION IF EXISTS public.cleanup_stale_sessions();
 DROP FUNCTION IF EXISTS public.get_usage_statistics();
 DROP FUNCTION IF EXISTS public.get_webhook_statistics(INTEGER);
 DROP FUNCTION IF EXISTS public.cleanup_old_webhook_events(INTEGER);
+DROP FUNCTION IF EXISTS public.check_and_record_attempt(TEXT, INTEGER, INTEGER, INTEGER);
+DROP FUNCTION IF EXISTS public.cleanup_auth_rate_limits();
 
+DROP TABLE IF EXISTS public.auth_rate_limits CASCADE;
 DROP TABLE IF EXISTS public.stripe_webhook_events CASCADE;
 DROP TABLE IF EXISTS public.usage_sessions CASCADE;
 DROP TABLE IF EXISTS public.sessions CASCADE;
@@ -49,10 +52,14 @@ CREATE TABLE public.users (
   subscription_id TEXT UNIQUE DEFAULT NULL,
   customer_id TEXT UNIQUE DEFAULT NULL,
   subscription_period_end TIMESTAMPTZ DEFAULT NULL, -- When subscription actually ends (for cancelled subscriptions)
+  is_suspended BOOLEAN NOT NULL DEFAULT false,      -- Admin-level suspension, independent of Stripe state
   session_limit_minutes INTEGER DEFAULT 180, -- 3 hours for active users
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
+
+-- MIGRATION NOTE (existing databases): if the is_suspended column is missing, run:
+-- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN NOT NULL DEFAULT false;
 
 -- Create usage_sessions table for tracking live translation sessions with ping-based system
 CREATE TABLE public.usage_sessions (
@@ -87,6 +94,16 @@ CREATE TABLE public.stripe_webhook_events (
   retry_count INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Auth rate limiting table (shared across Cloud Run instances)
+-- Handles both IP-based rate limiting and per-account lockout via the key column
+CREATE TABLE public.auth_rate_limits (
+  key TEXT PRIMARY KEY,                    -- 'ip:1.2.3.4' or 'lockout:email@x.com'
+  attempts INTEGER NOT NULL DEFAULT 1,
+  window_start TIMESTAMPTZ NOT NULL,
+  locked_until TIMESTAMPTZ,               -- NULL = not locked; set when attempts >= max
+  updated_at TIMESTAMPTZ NOT NULL
 );
 
 -- ==============================================
@@ -223,7 +240,15 @@ CREATE POLICY "usage_sessions_service_role_all" ON public.usage_sessions
 
 -- Create RLS policy for stripe_webhook_events (service role only - webhooks are server-side)
 CREATE POLICY "stripe_webhook_events_service_role_all" ON public.stripe_webhook_events
-  FOR ALL 
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- Rate limits table: server-side only, no client access
+ALTER TABLE public.auth_rate_limits ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "auth_rate_limits_service_role_all" ON public.auth_rate_limits
+  FOR ALL
   TO service_role
   USING (true)
   WITH CHECK (true);
@@ -255,8 +280,13 @@ CREATE INDEX idx_usage_sessions_stale_cleanup ON public.usage_sessions(status, l
 CREATE INDEX idx_stripe_webhook_events_event_type ON public.stripe_webhook_events(event_type);
 CREATE INDEX idx_stripe_webhook_events_status ON public.stripe_webhook_events(status);
 CREATE INDEX idx_stripe_webhook_events_created_at ON public.stripe_webhook_events(created_at);
-CREATE INDEX idx_stripe_webhook_events_retry ON public.stripe_webhook_events(status, retry_count) 
+CREATE INDEX idx_stripe_webhook_events_retry ON public.stripe_webhook_events(status, retry_count)
   WHERE status = 'failed';
+
+-- Indexes for auth_rate_limits table
+CREATE INDEX idx_auth_rate_limits_locked_until ON public.auth_rate_limits(locked_until)
+  WHERE locked_until IS NOT NULL;
+CREATE INDEX idx_auth_rate_limits_updated_at ON public.auth_rate_limits(updated_at);
 
 -- ==============================================
 -- CLEANUP AND MAINTENANCE FUNCTIONS
@@ -397,12 +427,85 @@ BEGIN
   DELETE FROM stripe_webhook_events
   WHERE created_at < NOW() - (days_to_keep || ' days')::INTERVAL
     AND status = 'completed';
-  
+
   GET DIAGNOSTICS deleted_count = ROW_COUNT;
-  
+
   RETURN QUERY SELECT deleted_count;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Atomic rate-limit / lockout counter.
+-- Called by both rate-limiting.ts (key = 'ip:...') and account-lockout.ts (key = 'lockout:...').
+-- Returns current state AFTER recording the attempt so callers never need a separate SELECT.
+CREATE OR REPLACE FUNCTION public.check_and_record_attempt(
+  p_key             TEXT,
+  p_max_attempts    INTEGER,
+  p_window_seconds  INTEGER,
+  p_lockout_seconds INTEGER
+) RETURNS TABLE (
+  cur_attempts  INTEGER,
+  is_locked     BOOLEAN,
+  locked_until  TIMESTAMPTZ,
+  reset_at      TIMESTAMPTZ
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_now TIMESTAMPTZ := now();
+BEGIN
+  INSERT INTO public.auth_rate_limits AS r (key, attempts, window_start, locked_until, updated_at)
+  VALUES (
+    p_key,
+    1,
+    v_now,
+    CASE WHEN 1 >= p_max_attempts
+      THEN v_now + (p_lockout_seconds || ' seconds')::INTERVAL
+      ELSE NULL
+    END,
+    v_now
+  )
+  ON CONFLICT (key) DO UPDATE SET
+    -- Reset window if it has expired
+    attempts = CASE
+      WHEN r.window_start + (p_window_seconds || ' seconds')::INTERVAL <= v_now THEN 1
+      ELSE r.attempts + 1
+    END,
+    window_start = CASE
+      WHEN r.window_start + (p_window_seconds || ' seconds')::INTERVAL <= v_now THEN v_now
+      ELSE r.window_start
+    END,
+    locked_until = CASE
+      -- Expired window: clear lock
+      WHEN r.window_start + (p_window_seconds || ' seconds')::INTERVAL <= v_now THEN NULL
+      -- Fresh lockout trigger
+      WHEN (r.attempts + 1) >= p_max_attempts
+        THEN v_now + (p_lockout_seconds || ' seconds')::INTERVAL
+      ELSE NULL
+    END,
+    updated_at = v_now;
+
+  RETURN QUERY
+  SELECT
+    a.attempts,
+    (a.locked_until IS NOT NULL AND a.locked_until > v_now),
+    a.locked_until,
+    (a.window_start + (p_window_seconds || ' seconds')::INTERVAL)::TIMESTAMPTZ
+  FROM public.auth_rate_limits a
+  WHERE a.key = p_key;
+END;
+$$;
+
+-- Cleanup expired rate-limit rows (safe to call from a cron job)
+CREATE OR REPLACE FUNCTION public.cleanup_auth_rate_limits()
+RETURNS TABLE(deleted_count BIGINT) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_deleted BIGINT;
+BEGIN
+  DELETE FROM public.auth_rate_limits
+  WHERE (locked_until IS NULL OR locked_until < now())
+    AND updated_at < now() - INTERVAL '2 hours';
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  RETURN QUERY SELECT v_deleted;
+END;
+$$;
 
 -- ==============================================
 -- PERMISSIONS
@@ -425,6 +528,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.usage_sessions TO authenticated;
 -- Stripe webhook events table permissions
 -- Only service role can access webhook events (server-side only)
 GRANT ALL ON public.stripe_webhook_events TO service_role;
+
+-- Auth rate limits table permissions (server-side only)
+GRANT ALL ON public.auth_rate_limits TO service_role;
 
 -- Service role permissions (for server-side operations like webhooks)
 -- Service role needs elevated permissions for admin operations

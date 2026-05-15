@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { 
-  UsageSessionReturn, 
-  SessionStatus, 
+import type {
+  UsageSessionReturn,
+  SessionStatus,
   SSEEvent,
-  UsageSessionAPIResponse 
+  UsageSessionAPIResponse
 } from '@/types/usage-session'
+import { PING_INTERVAL_MS } from '@/lib/usage/constants'
 
 /**
  * Unified Usage Session Hook
@@ -43,6 +44,7 @@ export function useUsageSession(): UsageSessionReturn {
   const reconnectAttemptsRef = useRef(0)
   const maxReconnectAttempts = 5
   const baseReconnectDelay = 1000
+  const keepalivePingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   /**
    * Process SSE events and update state
@@ -243,14 +245,13 @@ export function useUsageSession(): UsageSessionReturn {
    * This eliminates race conditions between ping responses and SSE events.
    */
   const stopSession = useCallback(async () => {
-    // Guard against duplicate calls - check both flags and state
+    // Guard against concurrent calls only — do NOT guard on isActive.
+    // The session may have just been created (startUsageSession is fire-and-forget)
+    // and the SSE session:created event may not have arrived yet, so isActive can
+    // still be false even though the server has an open session. The server API is
+    // idempotent: stopping an already-closed session is a safe no-op.
     if (isStoppingRef.current) {
       console.log('[useUsageSession] Stop already in progress, ignoring duplicate call')
-      return
-    }
-    
-    if (!isActive) {
-      console.log('[useUsageSession] Session not active, ignoring stop call')
       return
     }
 
@@ -277,12 +278,13 @@ export function useUsageSession(): UsageSessionReturn {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error('[useUsageSession] Error stopping session:', err)
       setError(errorMessage)
-      // Revert status on error
-      setStatus(isActive ? 'active' : 'idle')
+      // Revert to idle on error; if the session is still active the SSE
+      // heartbeat will push the correct state back shortly.
+      setStatus('idle')
     } finally {
       isStoppingRef.current = false
     }
-  }, [isActive])
+  }, [])
 
   /**
    * Connect to SSE on mount, disconnect on unmount
@@ -306,6 +308,43 @@ export function useUsageSession(): UsageSessionReturn {
           type: 'application/json',
         })
         navigator.sendBeacon('/api/usage/ping', blob)
+      }
+    }
+  }, [isActive])
+
+  /**
+   * Keepalive ping interval — renews last_seen_at while a session is active.
+   *
+   * The server marks a session 'expired' if it receives no ping for TTL_SECONDS
+   * (180 s). Without this interval, the client only sends one ping on start,
+   * so any session longer than 3 minutes would auto-expire mid-recording.
+   *
+   * Uses a bare fetch (not startSession) to bypass the isActive guard in
+   * startSession, which would silently drop the request.
+   */
+  useEffect(() => {
+    if (!isActive) {
+      if (keepalivePingIntervalRef.current) {
+        clearInterval(keepalivePingIntervalRef.current)
+        keepalivePingIntervalRef.current = null
+      }
+      return
+    }
+
+    keepalivePingIntervalRef.current = setInterval(() => {
+      fetch('/api/usage/ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: true }),
+      }).catch((err) => {
+        console.warn('[useUsageSession] Keepalive ping failed:', err)
+      })
+    }, PING_INTERVAL_MS)
+
+    return () => {
+      if (keepalivePingIntervalRef.current) {
+        clearInterval(keepalivePingIntervalRef.current)
+        keepalivePingIntervalRef.current = null
       }
     }
   }, [isActive])

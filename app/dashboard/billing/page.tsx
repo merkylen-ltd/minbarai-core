@@ -181,23 +181,6 @@ export default function BillingPage() {
       <main className="pt-24 pb-12">
         <div className="container-custom">
           <div className="max-w-4xl mx-auto space-y-8">
-            {/* Beta Notice */}
-            <div className="bg-accent-500/10 border border-accent-500/20 rounded-lg p-4">
-              <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0">
-                  <div className="w-6 h-6 bg-accent-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-sm font-display">β</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-accent-300 font-heading mb-1">Beta Billing Information</h3>
-                  <p className="text-accent-400 text-sm">
-                    You're currently on our beta pricing plan. Features and pricing may change as we continue development. 
-                    Beta subscribers will be notified of any changes before they take effect.
-                  </p>
-                </div>
-              </div>
-            </div>
             {/* Subscription Status */}
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-6">
               <div className="flex items-center justify-between mb-6">
@@ -214,12 +197,7 @@ export default function BillingPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <p className="text-sm text-neutral-400">Plan</p>
-                    <div className="flex items-center space-x-2">
-                      <p className="font-heading text-white">MinbarAI Pro Beta</p>
-                      <span className="inline-flex items-center px-2 py-1 rounded-full bg-accent-500/20 text-accent-400 border border-accent-500/30 text-xs font-body">
-                        BETA
-                      </span>
-                    </div>
+                    <p className="font-heading text-white">MinbarAI Pro</p>
                   </div>
                   <div className="space-y-2">
                     <p className="text-sm text-neutral-400">Price</p>
@@ -241,10 +219,7 @@ export default function BillingPage() {
                   <div className="space-y-2">
                     <p className="text-sm text-neutral-400">Plan</p>
                     <div className="flex items-center space-x-2">
-                      <p className="font-heading text-white">MinbarAI Pro Beta</p>
-                      <span className="inline-flex items-center px-2 py-1 rounded-full bg-accent-500/20 text-accent-400 border border-accent-500/30 text-xs font-body">
-                        BETA
-                      </span>
+                      <p className="font-heading text-white">MinbarAI Pro</p>
                       <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 text-xs font-body">
                         TEST
                       </span>

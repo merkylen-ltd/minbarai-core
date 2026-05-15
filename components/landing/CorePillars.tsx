@@ -10,7 +10,7 @@ interface PillarProps {
 }
 
 const PillarCard: React.FC<PillarProps> = ({ title, description }) => (
-  <div className="card h-full flex flex-col min-h-[200px]">
+  <div className="card h-full min-w-0 flex flex-col min-h-[200px]">
     <h3 className="font-display text-fluid-xl text-neutral-0 mb-4 leading-tight">{title}</h3>
     <p className="text-fluid-sm text-neutral-50 leading-relaxed flex-grow">{description}</p>
   </div>
@@ -40,24 +40,24 @@ const CorePillars: React.FC = () => {
   ];
 
   return (
-    <section className="core-pillars section-min-height flex flex-col justify-center section-spacing relative gradient-section">
-      <div className="container-custom relative z-10">
+    <section className="core-pillars section-min-height flex flex-col justify-center section-spacing relative gradient-section overflow-x-hidden">
+      <div className="container-custom relative z-10 max-w-6xl mx-auto min-w-0">
         <h2 className="font-display text-fluid-2xl text-neutral-0 text-center mb-fluid-lg">
           Core Pillars
         </h2>
         
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-          {/* Left Column - Pillars in 2x2 Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+        {/* Tighter middle gap so cards and image feel connected */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 xl:gap-12 items-stretch min-w-0">
+          {/* Left Column - Pillars in 2x2 Grid; min-w-0 prevents overflow, equal card widths */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 grid-rows-2 gap-5 lg:gap-6 xl:gap-8 h-full min-h-0 min-w-0 w-full">
             {pillars.map((pillar) => (
               <PillarCard key={pillar.title} {...pillar} />
             ))}
           </div>
           
-          {/* Right Column - Featured Image */}
-          <div className="relative flex items-center justify-center lg:justify-end order-first lg:order-last">
-            <div className="relative rounded-2xl overflow-hidden gradient-primary gradient-smooth gradient-optimized backdrop-blur-sm border border-primary-600/30 shadow-2xl hover:shadow-glow-lg transition-all duration-500 max-w-md w-full">
+          {/* Right Column - Featured Image (stretches to match row so left column can match) */}
+          <div className="relative flex items-center justify-center lg:justify-end order-first lg:order-last h-full min-h-0">
+            <div className="relative rounded-2xl overflow-hidden gradient-primary gradient-smooth gradient-optimized backdrop-blur-sm border border-primary-600/30 shadow-2xl hover:shadow-glow-lg transition-all duration-500 w-full max-w-[420px] h-full flex items-center">
               {!imageError ? (
                 <>
                   <Image 
@@ -133,7 +133,7 @@ const CorePillars: React.FC = () => {
             </div>
           </div>
         </div>
-        <ScrollArrow targetSelector=".why-choose-us" delay="1s" />
+        <ScrollArrow targetSelector=".social-proof" delay="1s" />
       </div>
     </section>
   );

@@ -1,16 +1,9 @@
-import { NextRequest } from 'next/server'
-
-// Account lockout store - in production, use Redis or database
-const accountLockoutStore = new Map<string, {
-  attempts: number
-  lockoutUntil: number
-  lastAttempt: number
-}>()
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export interface AccountLockoutConfig {
-  maxAttempts: number // Maximum failed attempts before lockout
-  lockoutDurationMs: number // How long to lock the account
-  windowMs: number // Time window for counting attempts
+  maxAttempts: number
+  lockoutDurationMs: number
+  windowMs: number
 }
 
 export interface AccountLockoutResult {
@@ -20,225 +13,117 @@ export interface AccountLockoutResult {
   retryAfter?: number
 }
 
-/**
- * Check if account is locked due to failed attempts
- * @param email - User email address
- * @param config - Lockout configuration
- * @returns AccountLockoutResult with lock status
- */
-export function checkAccountLockout(
+function lockoutKey(email: string): string {
+  return `lockout:${email.toLowerCase()}`
+}
+
+/** Read-only check — does not increment the attempt counter */
+export async function checkAccountLockout(
   email: string,
   config: AccountLockoutConfig
-): AccountLockoutResult {
-  const now = Date.now()
-  const key = `lockout:${email.toLowerCase()}`
-  
-  const record = accountLockoutStore.get(key)
-  
-  // No record means no lockout
-  if (!record) {
+): Promise<AccountLockoutResult> {
+  try {
+    const adminClient = createAdminClient()
+    const { data } = await adminClient
+      .from('auth_rate_limits')
+      .select('attempts, locked_until, window_start')
+      .eq('key', lockoutKey(email))
+      .maybeSingle()
+
+    if (!data) {
+      return { isLocked: false, remainingAttempts: config.maxAttempts }
+    }
+
+    const now = Date.now()
+    const lockedUntil = data.locked_until ? new Date(data.locked_until as string).getTime() : null
+    const windowExpiry = new Date(data.window_start as string).getTime() + config.windowMs
+
+    // Lock expired or window expired — treat as clean
+    if ((!lockedUntil || lockedUntil <= now) && windowExpiry <= now) {
+      return { isLocked: false, remainingAttempts: config.maxAttempts }
+    }
+
+    if (lockedUntil && lockedUntil > now) {
+      return {
+        isLocked: true,
+        remainingAttempts: 0,
+        lockoutUntil: lockedUntil,
+        retryAfter: Math.ceil((lockedUntil - now) / 1000),
+      }
+    }
+
     return {
       isLocked: false,
-      remainingAttempts: config.maxAttempts
+      remainingAttempts: Math.max(0, config.maxAttempts - (data.attempts as number)),
     }
-  }
-  
-  // Check if lockout period has expired
-  if (now > record.lockoutUntil) {
-    // Clear expired lockout
-    accountLockoutStore.delete(key)
-    return {
-      isLocked: false,
-      remainingAttempts: config.maxAttempts
-    }
-  }
-  
-  // Check if attempts window has expired
-  if (now > record.lastAttempt + config.windowMs) {
-    // Reset attempts counter
-    accountLockoutStore.delete(key)
-    return {
-      isLocked: false,
-      remainingAttempts: config.maxAttempts
-    }
-  }
-  
-  // Account is locked
-  return {
-    isLocked: true,
-    remainingAttempts: 0,
-    lockoutUntil: record.lockoutUntil,
-    retryAfter: Math.ceil((record.lockoutUntil - now) / 1000)
+  } catch {
+    // Fail open
+    return { isLocked: false, remainingAttempts: config.maxAttempts }
   }
 }
 
-/**
- * Record a failed login attempt
- * @param email - User email address
- * @param config - Lockout configuration
- * @returns AccountLockoutResult after recording attempt
- */
-export function recordFailedAttempt(
+/** Record a failed login attempt — atomically increments counter and may set lockout */
+export async function recordFailedAttempt(
   email: string,
   config: AccountLockoutConfig
-): AccountLockoutResult {
+): Promise<AccountLockoutResult> {
+  const key = lockoutKey(email)
+  const windowSeconds = Math.ceil(config.windowMs / 1000)
+  const lockoutSeconds = Math.ceil(config.lockoutDurationMs / 1000)
   const now = Date.now()
-  const key = `lockout:${email.toLowerCase()}`
-  
-  const record = accountLockoutStore.get(key)
-  
-  if (!record) {
-    // First failed attempt
-    const newRecord = {
-      attempts: 1,
-      lockoutUntil: 0,
-      lastAttempt: now
+
+  try {
+    const adminClient = createAdminClient()
+    const { data, error } = await adminClient.rpc('check_and_record_attempt', {
+      p_key: key,
+      p_max_attempts: config.maxAttempts,
+      p_window_seconds: windowSeconds,
+      p_lockout_seconds: lockoutSeconds,
+    })
+
+    if (error || !data || data.length === 0) {
+      return { isLocked: false, remainingAttempts: config.maxAttempts }
     }
-    
-    // Check if this triggers lockout
-    if (newRecord.attempts >= config.maxAttempts) {
-      newRecord.lockoutUntil = now + config.lockoutDurationMs
+
+    const row = data[0]
+    const isLocked = row.is_locked as boolean
+    const curAttempts = row.cur_attempts as number
+    const lockedUntil = row.locked_until ? new Date(row.locked_until as string).getTime() : undefined
+
+    if (isLocked && lockedUntil) {
+      return {
+        isLocked: true,
+        remainingAttempts: 0,
+        lockoutUntil: lockedUntil,
+        retryAfter: Math.ceil((lockedUntil - now) / 1000),
+      }
     }
-    
-    accountLockoutStore.set(key, newRecord)
-    
+
     return {
-      isLocked: newRecord.attempts >= config.maxAttempts,
-      remainingAttempts: config.maxAttempts - newRecord.attempts,
-      lockoutUntil: newRecord.lockoutUntil > 0 ? newRecord.lockoutUntil : undefined,
-      retryAfter: newRecord.lockoutUntil > 0 ? Math.ceil(config.lockoutDurationMs / 1000) : undefined
+      isLocked: false,
+      remainingAttempts: Math.max(0, config.maxAttempts - curAttempts),
     }
-  }
-  
-  // Check if lockout period has expired
-  if (now > record.lockoutUntil) {
-    // Reset and record new attempt
-    const newRecord = {
-      attempts: 1,
-      lockoutUntil: 0,
-      lastAttempt: now
-    }
-    
-    if (newRecord.attempts >= config.maxAttempts) {
-      newRecord.lockoutUntil = now + config.lockoutDurationMs
-    }
-    
-    accountLockoutStore.set(key, newRecord)
-    
-    return {
-      isLocked: newRecord.attempts >= config.maxAttempts,
-      remainingAttempts: config.maxAttempts - newRecord.attempts,
-      lockoutUntil: newRecord.lockoutUntil > 0 ? newRecord.lockoutUntil : undefined,
-      retryAfter: newRecord.lockoutUntil > 0 ? Math.ceil(config.lockoutDurationMs / 1000) : undefined
-    }
-  }
-  
-  // Check if attempts window has expired
-  if (now > record.lastAttempt + config.windowMs) {
-    // Reset attempts counter
-    const newRecord = {
-      attempts: 1,
-      lockoutUntil: 0,
-      lastAttempt: now
-    }
-    
-    if (newRecord.attempts >= config.maxAttempts) {
-      newRecord.lockoutUntil = now + config.lockoutDurationMs
-    }
-    
-    accountLockoutStore.set(key, newRecord)
-    
-    return {
-      isLocked: newRecord.attempts >= config.maxAttempts,
-      remainingAttempts: config.maxAttempts - newRecord.attempts,
-      lockoutUntil: newRecord.lockoutUntil > 0 ? newRecord.lockoutUntil : undefined,
-      retryAfter: newRecord.lockoutUntil > 0 ? Math.ceil(config.lockoutDurationMs / 1000) : undefined
-    }
-  }
-  
-  // Increment attempts
-  record.attempts++
-  record.lastAttempt = now
-  
-  // Check if this triggers lockout
-  if (record.attempts >= config.maxAttempts) {
-    record.lockoutUntil = now + config.lockoutDurationMs
-  }
-  
-  accountLockoutStore.set(key, record)
-  
-  return {
-    isLocked: record.attempts >= config.maxAttempts,
-    remainingAttempts: Math.max(0, config.maxAttempts - record.attempts),
-    lockoutUntil: record.lockoutUntil > 0 ? record.lockoutUntil : undefined,
-    retryAfter: record.lockoutUntil > 0 ? Math.ceil((record.lockoutUntil - now) / 1000) : undefined
+  } catch {
+    // Fail open — a failed DB write must not block login flow
+    return { isLocked: false, remainingAttempts: config.maxAttempts }
   }
 }
 
-/**
- * Clear failed attempts for an account (e.g., after successful login)
- * @param email - User email address
- */
-export function clearFailedAttempts(email: string): void {
-  const key = `lockout:${email.toLowerCase()}`
-  accountLockoutStore.delete(key)
-}
-
-/**
- * Clear all lockout records (useful for testing)
- */
-export function clearAllLockouts(): void {
-  accountLockoutStore.clear()
-}
-
-/**
- * Get lockout statistics for monitoring
- */
-export function getLockoutStats(): {
-  totalLockedAccounts: number
-  activeLockouts: number
-  expiredLockouts: number
-} {
-  const now = Date.now()
-  let activeLockouts = 0
-  let expiredLockouts = 0
-  
-  for (const entry of Array.from(accountLockoutStore.entries())) {
-    const [key, record] = entry
-    if (now > record.lockoutUntil) {
-      expiredLockouts++
-    } else {
-      activeLockouts++
-    }
-  }
-  
-  return {
-    totalLockedAccounts: accountLockoutStore.size,
-    activeLockouts,
-    expiredLockouts
+/** Delete the lockout record after successful login — fire-and-forget, never awaited by callers */
+export async function clearFailedAttempts(email: string): Promise<void> {
+  try {
+    const adminClient = createAdminClient()
+    await adminClient
+      .from('auth_rate_limits')
+      .delete()
+      .eq('key', lockoutKey(email))
+  } catch {
+    // Swallow — a failed delete must never block a successful login response
   }
 }
 
-// Predefined lockout configurations
 export const ACCOUNT_LOCKOUT_CONFIGS = {
-  // Standard account lockout
-  STANDARD: {
-    maxAttempts: 5, // 5 failed attempts
-    lockoutDurationMs: 15 * 60 * 1000, // 15 minutes lockout
-    windowMs: 15 * 60 * 1000, // 15 minutes window
-  },
-  
-  // Stricter lockout for suspicious activity
-  STRICT: {
-    maxAttempts: 3, // 3 failed attempts
-    lockoutDurationMs: 60 * 60 * 1000, // 1 hour lockout
-    windowMs: 10 * 60 * 1000, // 10 minutes window
-  },
-  
-  // Very strict lockout for high-risk scenarios
-  VERY_STRICT: {
-    maxAttempts: 3, // 3 failed attempts
-    lockoutDurationMs: 24 * 60 * 60 * 1000, // 24 hours lockout
-    windowMs: 5 * 60 * 1000, // 5 minutes window
-  }
+  STANDARD: { maxAttempts: 5, lockoutDurationMs: 15 * 60 * 1000, windowMs: 15 * 60 * 1000 },
+  STRICT: { maxAttempts: 3, lockoutDurationMs: 60 * 60 * 1000, windowMs: 10 * 60 * 1000 },
+  VERY_STRICT: { maxAttempts: 3, lockoutDurationMs: 24 * 60 * 60 * 1000, windowMs: 5 * 60 * 1000 },
 } as const

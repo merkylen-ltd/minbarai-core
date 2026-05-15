@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import FormInput from '@/components/forms/FormInput'
 import LoadingButton from '@/components/forms/LoadingButton'
-import { validateEmail, validatePassword } from '@/lib/auth/password-strength'
+import { validateEmail } from '@/lib/auth/password-strength'
 import { useDialog } from '@/lib/hooks/useDialog'
 import { AlertDialog } from '@/components/ui/dialog'
 
@@ -85,18 +85,6 @@ function SignInForm() {
     }
   }, [email, touched.email])
 
-  // Real-time password validation
-  useEffect(() => {
-    if (password && touched.password) {
-      const passwordValidation = validatePassword(password)
-      if (!passwordValidation.isValid) {
-        setPasswordError(passwordValidation.errors[0])
-      } else {
-        setPasswordError('')
-      }
-    }
-  }, [password, touched.password])
-
   // Clear auth error when form changes
   useEffect(() => {
     if (error) {
@@ -117,7 +105,6 @@ function SignInForm() {
 
     // Validate form
     const emailValidation = validateEmail(email)
-    const passwordValidation = validatePassword(password)
 
     if (!emailValidation.isValid) {
       setEmailError(emailValidation.errors[0])
@@ -125,8 +112,8 @@ function SignInForm() {
       return
     }
 
-    if (!passwordValidation.isValid) {
-      setPasswordError(passwordValidation.errors[0])
+    if (!password) {
+      setPasswordError('Please enter your password')
       setLoading(false)
       return
     }

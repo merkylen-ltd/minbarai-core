@@ -7,6 +7,7 @@ export default function PaymentsPage() {
   const [webhookStatus, setWebhookStatus] = useState<any>(null)
   const [failedPayments, setFailedPayments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -15,6 +16,10 @@ export default function PaymentsPage() {
     ]).then(([status, failed]) => {
       setWebhookStatus(status)
       setFailedPayments(failed.failedPayments || [])
+      setError(null)
+    }).catch((err) => {
+      setError('Failed to load payment data. Please try again.')
+      console.error('Payment data fetch error:', err)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -27,7 +32,21 @@ export default function PaymentsPage() {
         </h1>
         <p className="text-neutral-300 mt-2 text-lg">Track payment issues and webhook health</p>
       </div>
-      
+
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start space-x-3">
+          <div className="text-red-400 mt-0.5">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <div>
+            <div className="text-red-200 font-medium">{error}</div>
+          </div>
+        </div>
+      )}
+
       {/* Webhook Status */}
       {webhookStatus && (
         <div className={`p-6 rounded-xl border shadow-lg ${

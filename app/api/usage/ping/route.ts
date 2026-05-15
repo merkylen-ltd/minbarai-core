@@ -2,14 +2,15 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
+import { isValidSubscriptionStatus } from '@/lib/subscription'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Constants for the ping-based usage tracking system
-// TTL: How long a session can go without activity before being marked as expired
-// Set to 30 minutes to accommodate long recording sessions without requiring heartbeat pings
-const TTL_SECONDS = 30 * 60 // 30 minutes TTL
+// How long a session can go without a ping before being marked as expired.
+// Must match cleanup/route.ts and supabase/database.sql — see lib/usage/constants.ts
+const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
 
 interface PingRequest {
   active: boolean
@@ -82,10 +83,7 @@ function calculateTimeRemaining(
 }
 
 /**
- * Calculate the correct max_end_at for a new session based on REMAINING time
- * This is critical - max_end_at should be the earlier of:
- * 1. NOW + remaining_time (so user can't exceed their limit)
- * 2. NOW + 3 hours (hard cap per session for UX)
+ * Calculate max_end_at for a new session: NOW + remaining time from the total limit.
  */
 function calculateMaxEndAt(
   now: Date,
@@ -94,14 +92,7 @@ function calculateMaxEndAt(
 ): Date {
   const limitSeconds = userSessionLimitMinutes * 60
   const remainingSeconds = Math.max(0, limitSeconds - totalUsageSeconds)
-  
-  // Hard cap of 3 hours per individual session for UX purposes
-  const maxSingleSessionSeconds = 3 * 60 * 60
-  
-  // Use the smaller of remaining time or max single session length
-  const effectiveMaxSeconds = Math.min(remainingSeconds, maxSingleSessionSeconds)
-  
-  return new Date(now.getTime() + effectiveMaxSeconds * 1000)
+  return new Date(now.getTime() + remainingSeconds * 1000)
 }
 
 /**
@@ -172,10 +163,10 @@ export async function POST(request: Request) {
       )
     }
 
-    // Get user's session limit from database
+    // Get user data including subscription state
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('session_limit_minutes')
+      .select('session_limit_minutes, subscription_status, subscription_period_end, is_suspended, customer_id')
       .eq('id', user.id)
       .single()
 
@@ -187,9 +178,64 @@ export async function POST(request: Request) {
       )
     }
 
+    // Helper: close any open session before rejecting — prevents orphaned active sessions
+    const closeActiveSessionIfExists = async (reason: 'suspended' | 'subscription_invalid' | 'subscription_expired') => {
+      const { data: openSession } = await supabase
+        .from('usage_sessions')
+        .select('id, started_at, max_end_at')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle()
+      if (openSession) {
+        const now = new Date()
+        const endedAt = new Date(Math.min(now.getTime(), new Date(openSession.max_end_at).getTime()))
+        await closeSession(supabase, openSession.id, 'closed', endedAt, new Date(openSession.started_at), now)
+        console.log(`[Usage Tracking] [${requestId}] Closed orphaned session ${openSession.id} due to ${reason}`)
+      }
+    }
+
+    // Gate: suspended accounts cannot use the service regardless of session state
+    if (userData.is_suspended) {
+      console.warn(`[Usage Tracking] [${requestId}] Suspended user ${user.id} attempted to ping`)
+      await closeActiveSessionIfExists('suspended')
+      return NextResponse.json({ error: 'Account suspended' }, { status: 403 })
+    }
+
+    // Gate: subscription must be in a valid state
+    if (!isValidSubscriptionStatus(userData.subscription_status)) {
+      console.warn(`[Usage Tracking] [${requestId}] User ${user.id} has invalid subscription status: ${userData.subscription_status}`)
+      await closeActiveSessionIfExists('subscription_invalid')
+      return NextResponse.json({ error: 'Invalid subscription status' }, { status: 403 })
+    }
+
+    // Gate: admin-managed accounts (no Stripe customer_id) must still be within their period
+    if (
+      userData.subscription_status === 'active' &&
+      !userData.customer_id &&
+      userData.subscription_period_end &&
+      new Date() > new Date(userData.subscription_period_end)
+    ) {
+      console.warn(`[Usage Tracking] [${requestId}] User ${user.id} admin subscription expired at ${userData.subscription_period_end}`)
+      await closeActiveSessionIfExists('subscription_expired')
+      return NextResponse.json({ error: 'Subscription period expired' }, { status: 403 })
+    }
+
+    // Gate: canceled Stripe subscriptions must still be within their paid period.
+    // isValidSubscriptionStatus() allows 'canceled' so users retain access until
+    // period end — but must be blocked once that date passes.
+    if (
+      userData.subscription_status === 'canceled' &&
+      userData.subscription_period_end &&
+      new Date() > new Date(userData.subscription_period_end)
+    ) {
+      console.warn(`[Usage Tracking] [${requestId}] User ${user.id} canceled subscription period ended at ${userData.subscription_period_end}`)
+      await closeActiveSessionIfExists('subscription_expired')
+      return NextResponse.json({ error: 'Subscription period expired' }, { status: 403 })
+    }
+
     const now = new Date()
     const ttlExpiry = new Date(now.getTime() + TTL_SECONDS * 1000)
-    const userSessionLimitMinutes = userData.session_limit_minutes || 180
+    const userSessionLimitMinutes = userData.session_limit_minutes ?? 180
 
     console.log(`[Usage Tracking] [${requestId}] Ping from user ${user.id}, active=${active}`)
 

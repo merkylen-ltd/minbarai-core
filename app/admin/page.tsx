@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import MetricCard from '@/components/admin/MetricCard'
+import ActiveSessionsDetail from '@/components/admin/ActiveSessionsDetail'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { format } from 'date-fns'
 
@@ -217,33 +218,8 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Session Status Overview */}
-      {sessionCount && (
-        <div className="bg-primary-700/30 border border-accent-500/20 rounded-lg p-6">
-          <h2 className="text-neutral-0 font-display text-xl font-semibold mb-4">Session Status Overview</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
-              <div className="text-green-400 text-sm font-medium mb-1">Active</div>
-              <div className="text-neutral-0 text-3xl font-semibold">{sessionCount.active}</div>
-            </div>
-            <div className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-lg">
-              <div className="text-orange-400 text-sm font-medium mb-1">Capped</div>
-              <div className="text-neutral-0 text-3xl font-semibold">{sessionCount.capped}</div>
-            </div>
-            <div className="p-4 bg-gray-500/10 border border-gray-500/20 rounded-lg">
-              <div className="text-gray-400 text-sm font-medium mb-1">Expired</div>
-              <div className="text-neutral-0 text-3xl font-semibold">{sessionCount.expired}</div>
-            </div>
-            <div className="p-4 bg-accent-500/10 border border-accent-500/20 rounded-lg">
-              <div className="text-accent-400 text-sm font-medium mb-1">Total</div>
-              <div className="text-neutral-0 text-3xl font-semibold">{sessionCount.total}</div>
-            </div>
-          </div>
-          <div className="text-neutral-400 text-xs mt-4">
-            Last updated: {sessionCount.timestamp ? format(new Date(sessionCount.timestamp), 'PPpp') : 'N/A'}
-          </div>
-        </div>
-      )}
+      {/* Active Sessions with Detail */}
+      <ActiveSessionsDetail />
     </div>
   )
 }

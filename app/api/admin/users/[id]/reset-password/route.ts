@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/auth/admin'
+import { sendPasswordResetEmail } from '@/lib/email/resend'
 import { cookies } from 'next/headers'
 
 /**
@@ -38,23 +39,36 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Use Supabase Auth to send password reset email
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      userData.email,
-      {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/reset-password`,
+    // Generate recovery link using admin client (proper way for admin-initiated resets)
+    const { data: resetData, error: resetError } = await adminClient.auth.admin.generateLink({
+      type: 'recovery',
+      email: userData.email,
+      options: {
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/reset-password?type=recovery`,
       }
-    )
+    })
 
-    if (resetError) {
-      console.error('[Admin API] Error sending password reset:', resetError)
-      return NextResponse.json({ error: 'Failed to send password reset email' }, { status: 500 })
+    if (resetError || !resetData) {
+      console.error('[Admin API] Error generating password reset link:', resetError)
+      return NextResponse.json({ error: 'Failed to generate password reset link' }, { status: 500 })
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Password reset email sent successfully',
-    })
+    // Send password reset email via Resend
+    try {
+      const result = await sendPasswordResetEmail(userData.email, resetData.properties.action_link)
+      if (!result.success) {
+        console.error('[Admin API] Error sending password reset email:', result.error)
+        return NextResponse.json({ error: result.error || 'Failed to send password reset email' }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Password reset email sent successfully',
+      })
+    } catch (emailError) {
+      console.error('[Admin API] Error sending password reset email:', emailError)
+      return NextResponse.json({ error: 'Failed to send password reset email' }, { status: 500 })
+    }
   } catch (error) {
     console.error('[Admin API] Exception in POST /api/admin/users/[id]/reset-password:', error)
     return NextResponse.json(

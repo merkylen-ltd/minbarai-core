@@ -16,6 +16,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -31,11 +32,18 @@ export default function UsersPage() {
   }, [])
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
     const params = new URLSearchParams({
       page: page.toString(),
       limit: '20',
       enrich_stripe: 'true',
-      ...(search && { search }),
+      ...(debouncedSearch && { search: debouncedSearch }),
       ...(statusFilter && { subscription_status: statusFilter }),
     })
 
@@ -48,11 +56,7 @@ export default function UsersPage() {
         }
       })
       .finally(() => setLoading(false))
-  }, [page, search, statusFilter])
-
-  if (loading) {
-    return <div className="text-neutral-0">Loading users...</div>
-  }
+  }, [page, debouncedSearch, statusFilter])
 
   return (
     <div className="space-y-8">
@@ -106,7 +110,6 @@ export default function UsersPage() {
             <option value="canceled">Canceled</option>
             <option value="incomplete">Incomplete</option>
             <option value="past_due">Past Due</option>
-            <option value="suspended">Suspended</option>
           </select>
         </div>
       </div>
@@ -124,30 +127,58 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-accent-500/10">
-              {users.map((user) => (
-                <tr key={user.id} className="hover:bg-primary-700/20 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="text-neutral-0 font-medium">{user.email}</div>
-                    {user.customer_id && (
-                      <div className="text-neutral-400 text-sm mt-1">ID: {user.id.slice(0, 8)}...</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={user.subscription_status} />
-                  </td>
-                  <td className="px-6 py-4 text-neutral-300">
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4">
-                    <Link
-                      href={`/admin/users/${user.id}`}
-                      className="inline-flex items-center px-4 py-2 rounded-lg bg-accent-500/20 text-accent-300 border border-accent-500/30 hover:bg-accent-500/30 hover:border-accent-500/50 transition-all duration-200 font-medium"
-                    >
-                      View Details
-                    </Link>
+              {loading ? (
+                // Skeleton loading state
+                Array.from({ length: 5 }).map((_, idx) => (
+                  <tr key={`skeleton-${idx}`} className="animate-pulse">
+                    <td className="px-6 py-4">
+                      <div className="h-4 bg-primary-700/30 rounded w-40"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-6 bg-primary-700/30 rounded w-20"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-4 bg-primary-700/30 rounded w-24"></div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-10 bg-primary-700/30 rounded w-32"></div>
+                    </td>
+                  </tr>
+                ))
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center">
+                    <div className="text-neutral-400">
+                      {search || statusFilter ? `No users found${search ? ` matching "${search}"` : ''}` : 'No users available'}
+                    </div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                users.map((user) => (
+                  <tr key={user.id} className="hover:bg-primary-700/20 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="text-neutral-0 font-medium">{user.email}</div>
+                      {user.customer_id && (
+                        <div className="text-neutral-400 text-sm mt-1">ID: {user.id.slice(0, 8)}...</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={user.subscription_status} />
+                    </td>
+                    <td className="px-6 py-4 text-neutral-300">
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4">
+                      <Link
+                        href={`/admin/users/${user.id}`}
+                        className="inline-flex items-center px-4 py-2 rounded-lg bg-accent-500/20 text-accent-300 border border-accent-500/30 hover:bg-accent-500/30 hover:border-accent-500/50 transition-all duration-200 font-medium"
+                      >
+                        View Details
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

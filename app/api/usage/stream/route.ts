@@ -2,26 +2,25 @@ import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import type { SSEEvent } from '@/types/usage-session'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
+import { isValidSubscriptionStatus } from '@/lib/subscription'
 
 // Type for usage session record
 interface UsageSessionRecord {
   duration_seconds: number | null
 }
 
-// Type for tracking previous session state to detect closures
+// Type for tracking previous session state to detect closures.
+// Kept per-connection (in GET handler closure) — NOT module-level — so that two
+// browser tabs for the same user each maintain independent closure-detection state.
 interface SessionStateCache {
   sessionId: string | null
   status: string
   lastChecked: number
 }
 
-// TTL for session expiry
-// How long a session can go without activity before being marked as expired
-// Set to 30 minutes to accommodate long recording sessions without requiring heartbeat pings
-const TTL_SECONDS = 30 * 60 // 30 minutes
-
-// Cache to track previous session state per user for detecting closures
-const sessionStateCache = new Map<string, SessionStateCache>()
+// Must match cleanup/route.ts and supabase/database.sql — see lib/usage/constants.ts
+const TTL_SECONDS = USAGE_SESSION_TTL_SECONDS
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -45,12 +44,55 @@ export async function GET(request: Request) {
       return new Response('Unauthorized', { status: 401 })
     }
 
+    // Validate subscription before accepting the stream connection
+    const { data: subData } = await supabase
+      .from('users')
+      .select('subscription_status, subscription_period_end, is_suspended, customer_id')
+      .eq('id', user.id)
+      .single()
+
+    if (subData?.is_suspended) {
+      return new Response('Account suspended', { status: 403 })
+    }
+
+    if (subData && !isValidSubscriptionStatus(subData.subscription_status)) {
+      return new Response('Invalid subscription', { status: 403 })
+    }
+
+    // Admin-managed accounts: enforce subscription_period_end
+    if (
+      subData?.subscription_status === 'active' &&
+      !subData.customer_id &&
+      subData.subscription_period_end &&
+      new Date() > new Date(subData.subscription_period_end)
+    ) {
+      return new Response('Subscription expired', { status: 403 })
+    }
+
+    // Canceled Stripe subscriptions retain access until period end only
+    if (
+      subData?.subscription_status === 'canceled' &&
+      subData.subscription_period_end &&
+      new Date() > new Date(subData.subscription_period_end)
+    ) {
+      return new Response('Subscription period expired', { status: 403 })
+    }
+
     console.log(`[Usage SSE] Stream connection opened for user ${user.id}`)
+
+    // Per-connection closure-detection state.
+    // Intentionally NOT module-level so concurrent SSE connections (multiple tabs)
+    // each get their own independent state and can both fire session:closed correctly.
+    let previousSessionState: SessionStateCache = {
+      sessionId: null,
+      status: 'idle',
+      lastChecked: 0,
+    }
 
     // Set up SSE stream
     const encoder = new TextEncoder()
     let aborted = false
-    
+
     const stream = new ReadableStream({
       async start(controller) {
         // Helper to send SSE event
@@ -77,7 +119,11 @@ export async function GET(request: Request) {
 
         try {
           // Send initial state immediately
-          const initialState = await getCurrentUsageState(supabase, user.id)
+          const initialState = await getCurrentUsageState(
+            supabase, user.id,
+            previousSessionState,
+            (s) => { previousSessionState = s },
+          )
           sendEvent(initialState)
 
           // Set up Supabase Realtime subscription for usage_sessions table changes
@@ -95,9 +141,13 @@ export async function GET(request: Request) {
                 if (aborted) return
                 
                 console.log(`[Usage SSE] Database change detected:`, payload.eventType)
-                
+
                 // Fetch updated state and send to client
-                const state = await getCurrentUsageState(supabase, user.id)
+                const state = await getCurrentUsageState(
+                  supabase, user.id,
+                  previousSessionState,
+                  (s) => { previousSessionState = s },
+                )
                 sendEvent(state)
               }
             )
@@ -130,7 +180,11 @@ export async function GET(request: Request) {
             }
             
             try {
-              const state = await getCurrentUsageState(supabase, user.id)
+              const state = await getCurrentUsageState(
+                supabase, user.id,
+                previousSessionState,
+                (s) => { previousSessionState = s },
+              )
               // Send all state updates except connection heartbeats
               // This includes active, expired, capped, and idle states
               if (state.type !== 'connection:heartbeat') {
@@ -195,17 +249,22 @@ export async function GET(request: Request) {
 }
 
 /**
- * Get current usage state for a user
- * Calculates time remaining, total usage, and session details
- * Also detects if an active session should be considered expired/capped
- * Detects session closures and returns appropriate event types
+ * Get current usage state for a user.
+ * Calculates time remaining, total usage, and session details.
+ * Detects session closures by comparing against caller-supplied previousState.
+ *
+ * previousState and updatePreviousState are passed in (not read from a module-level
+ * Map) so that concurrent SSE connections for the same user each maintain independent
+ * closure-detection state.
  */
-async function getCurrentUsageState(supabase: SupabaseClient, userId: string): Promise<SSEEvent> {
+async function getCurrentUsageState(
+  supabase: SupabaseClient,
+  userId: string,
+  previousState: SessionStateCache,
+  updatePreviousState: (s: SessionStateCache) => void,
+): Promise<SSEEvent> {
   try {
     const now = Date.now()
-    
-    // Get previous state from cache to detect transitions
-    const previousState = sessionStateCache.get(userId)
     
     // Fetch current active session
     const { data: activeSession, error: sessionError } = await supabase
@@ -244,7 +303,7 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
       console.error('[Usage SSE] Error fetching user data:', userError)
     }
 
-    const limitSeconds = ((userData?.session_limit_minutes || 180) * 60)
+    const limitSeconds = ((userData?.session_limit_minutes ?? 180) * 60)
 
     // Calculate current session duration and check for expiry conditions
     let currentSessionSeconds = 0
@@ -308,12 +367,11 @@ async function getCurrentUsageState(supabase: SupabaseClient, userId: string): P
                                currentHasNoSession && 
                                previousState.status !== 'idle'
     
-    // Update cache with current state BEFORE returning
-    // This prevents duplicate closure detection on the next call
-    sessionStateCache.set(userId, {
+    // Update per-connection state BEFORE returning to prevent duplicate closure detection
+    updatePreviousState({
       sessionId: effectiveSessionId,
       status: effectiveStatus,
-      lastChecked: now
+      lastChecked: now,
     })
 
     // Calculate time remaining (respecting the limit)

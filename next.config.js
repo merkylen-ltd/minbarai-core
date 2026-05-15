@@ -81,6 +81,8 @@ const nextConfig = {
         'util': false,
         'buffer': false,
         'process': false,
+        'canvas': false,
+        'path': false,
       };
     }
 

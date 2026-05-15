@@ -282,6 +282,7 @@ async function createPublicUser(userId, email) {
       subscription_id: `sub_${email.replace('@', '_').replace('.', '_')}_plan`,
       customer_id: `cus_${email.replace('@', '_').replace('.', '_')}`,
       session_limit_minutes: 180,
+      is_suspended: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }, {
@@ -442,6 +443,7 @@ async function main() {
     console.log('Examples:');
     console.log('  node scripts/seed-database.js test@example.com');
     console.log('  node scripts/seed-database.js test@example.com MyPassword123');
+    console.log('  SEED_PASSWORD=\'pass$word\' node scripts/seed-database.js test@example.com  # Use env for $, *, etc.');
     console.log('  node scripts/seed-database.js cleanup test@example.com');
     console.log('  node scripts/seed-database.js reset test@example.com  # Same email/password, clear usage');
     console.log('  node scripts/seed-database.js list');
@@ -491,7 +493,8 @@ async function main() {
 
   // Create user command
   const email = args[0];
-  const password = args[1] || generateSecurePassword();
+  // Prefer SEED_PASSWORD env var to avoid shell expansion of $, *, etc.
+  const password = process.env.SEED_PASSWORD || args[1] || generateSecurePassword();
 
   if (!validateEmail(email)) {
     console.error('❌ Invalid email format');

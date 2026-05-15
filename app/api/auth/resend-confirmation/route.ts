@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     // Stricter rate limiting for resend (prevent abuse)
-    const rateLimitResult = checkRateLimit(request, {
+    const rateLimitResult = await checkRateLimit(request, {
       ...RATE_LIMIT_CONFIGS.AUTH,
       maxAttempts: 3, // Only 3 attempts
       windowMs: 3600000 // Per hour

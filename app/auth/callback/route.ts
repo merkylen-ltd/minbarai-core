@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { checkRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/auth/rate-limiting'
 import { validateAuthRedirectUrl } from '@/lib/auth/redirect-validation'
+import { sendWelcomeEmail } from '@/lib/email/resend'
 
 // Force dynamic rendering for this route
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
     const { searchParams, origin } = new URL(request.url)
     
     // Rate limiting check using the new utility
-    const rateLimitResult = checkRateLimit(request as any, RATE_LIMIT_CONFIGS.OAUTH_CALLBACK)
+    const rateLimitResult = await checkRateLimit(request, RATE_LIMIT_CONFIGS.OAUTH_CALLBACK)
     
     if (!rateLimitResult.allowed) {
       console.error(`Auth callback: Rate limit exceeded`)
@@ -99,7 +100,7 @@ export async function GET(request: Request) {
             } else {
               // New user, ensure they exist in users table and redirect to subscribe
               console.log(`Auth callback: New user signing up - creating user record`)
-              
+
               const { error: upsertError } = await supabase
                 .from('users')
                 .upsert({
@@ -110,13 +111,29 @@ export async function GET(request: Request) {
                 }, {
                   onConflict: 'id'  // Handle race conditions
                 })
-              
+
               if (upsertError) {
                 console.error(`Auth callback: Error creating user record:`, upsertError)
                 // If user creation fails, redirect to error page instead of continuing
                 return NextResponse.redirect(`${origin}/auth/auth-code-error?error=user_creation_failed&description=${encodeURIComponent('Failed to create user account. Please contact support.')}`)
               }
-              
+
+              // SECURITY: Re-validate email confirmation after upsert to prevent race condition
+              // where email_confirmed_at could be cleared between initial check and upsert
+              const { data: { user: revalidatedUser } } = await supabase.auth.getUser()
+
+              if (!revalidatedUser?.email_confirmed_at) {
+                console.error(`Auth callback: Email confirmation was cleared during signup for user ${user.email}`)
+                return NextResponse.redirect(`${origin}/auth/auth-code-error?error=email_confirmation_lost&description=${encodeURIComponent('Email confirmation was lost. Please try signing up again.')}`)
+              }
+
+              // Send welcome email (fire-and-forget — must not block the redirect)
+              if (user.email) {
+                sendWelcomeEmail(user.email).catch((err) =>
+                  console.error('[Auth callback] sendWelcomeEmail failed:', err)
+                )
+              }
+
               redirectTo = '/subscribe'
               console.log(`Auth callback: New user created - redirecting to subscribe`)
             }

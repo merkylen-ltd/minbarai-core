@@ -144,8 +144,14 @@ export class VoiceFlowRecognition {
       return;
     }
     
-    // Clean up any existing connection
+    // Clean up any existing connection.
+    // Null out all handlers first so the old socket's onclose cannot re-enter
+    // finish() or trigger a spurious reconnect after we create the new socket.
     if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
       this.ws.close();
     }
     
@@ -208,29 +214,35 @@ export class VoiceFlowRecognition {
 
   stop(): void {
     this.userStopped = true;
-    
+
     // Clear any pending reconnection
     if (this.reconnectTimeoutId) {
       clearTimeout(this.reconnectTimeoutId);
       this.reconnectTimeoutId = null;
     }
     this.reconnectAttempts = 0;
-    
+
     // Stop audio capture FIRST to prevent more data being sent
     if (this.cleanup) {
       try { this.cleanup(); } catch {}
       this.cleanup = undefined;
     }
-    
-    try { 
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        // Send stop message to server
-        this.ws.send(JSON.stringify({ type: "stop" })); 
-        // Close WebSocket immediately - don't wait for server response
+
+    try {
+      if (this.ws) {
+        // Null out onclose BEFORE closing so the close event doesn't re-enter finish()
+        // (prevents double onend if the socket was already being closed by auto-reconnect)
+        this.ws.onclose = null;
+        if (this.ws.readyState === WebSocket.OPEN) {
+          // Send stop message to server only if connected
+          this.ws.send(JSON.stringify({ type: "stop" }));
+        }
+        // Close regardless of readyState — aborts CONNECTING sockets from in-flight
+        // auto-reconnects that start() may have already kicked off
         this.ws.close(1000, "User stopped");
       }
     } catch {}
-    
+
     this.finish("stop");
   }
 
@@ -296,9 +308,13 @@ export class VoiceFlowRecognition {
 
   // --- internals ---
   private async handleOpen(): Promise<void> {
+    // Guard: if stop() was called before (or during) handleOpen, bail out immediately.
+    // finish() no longer resets userStopped, so this flag stays true until the next start().
+    if (this.userStopped) return;
+
     try {
       // WebSocket is ready when onopen fires - no delay needed
-      
+
       // STEP 1: Check microphone permission first
       console.log('[VoiceFlow] Checking microphone permission...');
       try {
@@ -306,25 +322,27 @@ export class VoiceFlowRecognition {
         console.log('[VoiceFlow] Permission check result:', permissionOk);
       } catch (permError) {
         console.error('[VoiceFlow] Permission check failed critically:', permError);
-        // Include the actual error message in the emitted error
         const errorMsg = permError instanceof Error ? permError.message : 'Permission denied';
         this.emitError("permission", errorMsg);
-        return; // Stop here, don't try to proceed
+        return;
       }
-      
+
+      // Guard after first async gap: stop() may have been called while we awaited
+      if (this.userStopped) return;
+
       // STEP 2: Determine capture mode
       const mode = this.voiceFlow.captureMode ?? "auto";
       let usePCM = mode === "PCM16";
-      
+
       if (mode === "auto") {
         // Keep existing check for desktop
         const hasWorklet = "audioWorklet" in (AudioContext.prototype as any);
         // Add mobile override: prefer OPUS on mobile
         usePCM = hasWorklet && !isMobileBrowser();
       }
-      
+
       console.log('[VoiceFlow] Audio capture mode:', { configured: mode, usePCM, isMobile: isMobileBrowser() });
-      
+
       // STEP 3: Start audio capture with the chosen mode
       if (usePCM) {
         try {
@@ -338,10 +356,22 @@ export class VoiceFlowRecognition {
       } else {
         await this.startOpus();
       }
+
+      // Final guard before emitting onstart: don't announce a new connection if
+      // stop() was called while audio capture was being set up.
+      // startPCM/startOpus normally clean up themselves when they detect userStopped,
+      // but call this.cleanup here as well in case of any edge-case timing.
+      if (this.userStopped) {
+        if (this.cleanup) {
+          try { this.cleanup(); } catch {}
+          this.cleanup = undefined;
+        }
+        return;
+      }
+
       this.onstart?.(new Event("start"));
     } catch (error) {
       console.error("Error in handleOpen:", error);
-      // Include the actual error message for better debugging
       const errorMsg = error instanceof Error ? error.message : 'Failed to initialize audio capture';
       this.emitError("initialization", errorMsg);
     }
@@ -354,6 +384,10 @@ export class VoiceFlowRecognition {
         if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
           // Connection is still establishing, wait for it
           const checkConnection = () => {
+            // Abort if stop() was called while we were waiting to connect.
+            // Without this guard the loop would keep polling and eventually call
+            // sendStart(), opening a ghost session after the user stopped.
+            if (this.userStopped) return;
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
               this.sendStart(payload);
             } else if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
@@ -521,16 +555,24 @@ export class VoiceFlowRecognition {
     } catch (error) {
       // Fallback to ideal constraints for mobile compatibility
       console.warn('[VoiceFlow] Exact audio constraints failed, trying ideal constraints:', error);
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-          channelCount: { ideal: 1 }, 
-          noiseSuppression: true, 
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: { ideal: 1 },
+          noiseSuppression: true,
           echoCancellation: true,
           sampleRate: { ideal: targetHz }
-        } 
+        }
       });
     }
-    
+
+    // Guard: stop() may have been called while getUserMedia was prompting the user.
+    // stop() found this.cleanup === undefined and could not release the stream;
+    // we must do it here before any more resources are allocated.
+    if (this.userStopped) {
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
     const ctx = new AudioContext({ latencyHint: "interactive" });
     
     // Mobile-specific: ensure AudioContext is running
@@ -554,32 +596,42 @@ class PCMWorklet extends AudioWorkletProcessor {
 }
 registerProcessor("pcm-worklet", PCMWorklet);
 `;
-    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "text/javascript" })));
+    // Load worklet module; revoke the blob URL immediately after — the browser
+    // has already loaded the module and holding the URL serves no purpose.
+    const blobUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "text/javascript" }));
+    await ctx.audioWorklet.addModule(blobUrl);
+    URL.revokeObjectURL(blobUrl);
+
     const src = ctx.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(ctx, "pcm-worklet");
     node.port.postMessage({ frameMs, targetHz });
     src.connect(node);
 
-    this.cleanup = () => { 
-      try { 
-        // Starting cleanup
-        node.disconnect(); 
-        src.disconnect(); 
-        
-        // CRITICAL: Check flag BEFORE attempting to close AudioContext
+    // Build cleanup closure before checking userStopped so we always have a
+    // single canonical way to tear down ctx + stream regardless of code path.
+    const doCleanup = () => {
+      try {
+        node.disconnect();
+        src.disconnect();
         if (!this.audioContextClosed && ctx.state !== 'closed') {
-          // Closing AudioContext
           ctx.close();
           this.audioContextClosed = true;
-        } else {
-          // AudioContext already closed, skipping
         }
-      } catch (error) {
-        // Cleanup error - ensure flag is set even if close fails
+      } catch {
         this.audioContextClosed = true;
-      }; 
-      stream.getTracks().forEach(t => t.stop()); 
+      }
+      stream.getTracks().forEach(t => t.stop());
     };
+
+    // Guard: stop() may have been called while addModule was awaited.
+    // stop() found this.cleanup === undefined and skipped teardown; we own the
+    // AudioContext and stream now, so we must clean up before returning.
+    if (this.userStopped) {
+      doCleanup();
+      return;
+    }
+
+    this.cleanup = doCleanup;
     this.sendStart({ mode: "PCM16", sampleRateHz: targetHz });
 
     node.port.onmessage = (e) => {
@@ -594,17 +646,24 @@ registerProcessor("pcm-worklet", PCMWorklet);
 
   private async startOpus() {
     // Match VoiceFlow example EXACTLY - use fixed constraints
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      audio: { 
-        channelCount: 1, 
-        noiseSuppression: true, 
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        noiseSuppression: true,
         echoCancellation: true,
         sampleRate: 48000
-      } 
+      }
     });
-    
+
+    // Guard: stop() may have been called while getUserMedia was prompting the user.
+    // stop() found this.cleanup === undefined and could not release the stream.
+    if (this.userStopped) {
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
     // Use fixed MIME type to match VoiceFlow example exactly
-    const rec = new MediaRecorder(stream, { 
+    const rec = new MediaRecorder(stream, {
       mimeType: "audio/webm;codecs=opus", 
       audioBitsPerSecond: 32000 
     });
@@ -761,8 +820,9 @@ registerProcessor("pcm-worklet", PCMWorklet);
     // Let VoiceFlow handle everything internally
     
     // Reset state for next session
+    // NOTE: userStopped is intentionally NOT reset here — it is reset in start() only,
+    // so that any in-flight handleOpen() async continuations can still observe it.
     this.started = false;
-    this.userStopped = false;
     this.audioContextClosed = false;
   }
 }

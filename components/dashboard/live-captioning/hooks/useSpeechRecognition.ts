@@ -1,26 +1,34 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { VoiceFlowAdapter } from '@/lib/voiceflow/adapter'
+
+/**
+ * Pure function that checks whether the cached prompt is still valid for the
+ * current language pair and translation variant. Exported for unit testing.
+ *
+ * Returns false if any of the three values diverge from what was cached, or if
+ * there is no cached prompt/promptLanguages at all.
+ */
+export function checkPromptValid(
+  cachedPrompt: string,
+  promptLanguages: { source: string; target: string; variant: string } | null,
+  sourceLanguage: string,
+  targetLanguage: string,
+  translationVariant: string
+): boolean {
+  if (!cachedPrompt || !promptLanguages) return false
+  return (
+    promptLanguages.source === sourceLanguage &&
+    promptLanguages.target === targetLanguage &&
+    promptLanguages.variant === translationVariant
+  )
+}
 import { getVoiceFlowConfig } from '@/lib/voiceflow/config'
 import { getASRLanguageCode, getLanguageName } from '@/constants/languages'
 import { ConnectionStatus, TranslationVariant } from '../types'
 import { checkVoiceFlowCompatibility, isMobileBrowser } from '../utils/browser-utils'
 import { getLanguageSpecificConfig } from '../utils/language-config'
-import { setupRecognitionHandlers } from '../utils/speech-recognition'
+import { setupRecognitionHandlers, resetValidationState } from '../utils/speech-recognition'
 
-// Debounce utility for language changes
-const debounce = <T extends (...args: any[]) => void>(
-  func: T,
-  delay: number
-): ((...args: Parameters<T>) => void) => {
-  let timeoutId: NodeJS.Timeout | null = null
-  
-  return (...args: Parameters<T>) => {
-    if (timeoutId) {
-      clearTimeout(timeoutId)
-    }
-    timeoutId = setTimeout(() => func(...args), delay)
-  }
-}
 
 export interface UseSpeechRecognitionProps {
   sourceLanguage: string
@@ -80,7 +88,7 @@ export const useSpeechRecognition = ({
   const [cachedPrompt, setCachedPrompt] = useState<string>('')
   const [isPromptLoading, setIsPromptLoading] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
-  const [promptLanguages, setPromptLanguages] = useState<{source: string, target: string} | null>(null)
+  const [promptLanguages, setPromptLanguages] = useState<{source: string, target: string, variant: string} | null>(null)
   const [isLanguageChanging, setIsLanguageChanging] = useState(false)
 
   const recognitionRef = useRef<VoiceFlowAdapter | null>(null)
@@ -140,7 +148,7 @@ export const useSpeechRecognition = ({
       // Only update if this request wasn't cancelled and is still the current request
       if (!currentAbortController.signal.aborted && abortControllerRef.current === currentAbortController) {
         setCachedPrompt(prompt)
-        setPromptLanguages({ source: currentSource, target: currentTarget })
+        setPromptLanguages({ source: currentSource, target: currentTarget, variant: currentVariant })
         setIsPromptLoading(false)
       }
     } catch (error) {
@@ -175,19 +183,10 @@ export const useSpeechRecognition = ({
     }
   }, [isMounted, preloadPrompt])
 
-  // Validate if cached prompt is valid for current language pair
+  // Validate if cached prompt is valid for current language pair and variant
   const isPromptValid = useCallback(() => {
-    if (!cachedPrompt || !promptLanguages) {
-      return false
-    }
-    
-    // Check if cached prompt matches current language selection
-    if (promptLanguages.source !== sourceLanguage || promptLanguages.target !== targetLanguage) {
-      return false
-    }
-    
-    return true
-  }, [cachedPrompt, promptLanguages, sourceLanguage, targetLanguage])
+    return checkPromptValid(cachedPrompt, promptLanguages, sourceLanguage, targetLanguage, translationVariant)
+  }, [cachedPrompt, promptLanguages, sourceLanguage, targetLanguage, translationVariant])
 
   // Pre-initialize speech recognition immediately for zero-delay start
   useEffect(() => {
@@ -288,11 +287,13 @@ export const useSpeechRecognition = ({
         languageChangeTimeoutRef.current = null
       }
     }
+    // Intentionally mount-only: adding callback deps would destroy/recreate the
+    // VoiceFlow recognition instance on every render. Callbacks are stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted])
 
-  // Debounced language change handler for recording sessions
-  const debouncedLanguageChange = useCallback(
-    debounce(async (sourceLang: string, targetLang: string) => {
+  // Language change handler for recording sessions
+  const handleLanguageChange = useCallback(async (sourceLang: string, targetLang: string) => {
       if (!recognitionRef.current || !isRecording) return
       
       setIsLanguageChanging(true)
@@ -307,10 +308,11 @@ export const useSpeechRecognition = ({
           return
         }
         
-        // Check if we need a new prompt
-        const needsNewPrompt = !promptLanguages || 
-          promptLanguages.source !== sourceLang || 
-          promptLanguages.target !== targetLang
+        // Check if we need a new prompt (language pair or variant changed)
+        const needsNewPrompt = !promptLanguages ||
+          promptLanguages.source !== sourceLang ||
+          promptLanguages.target !== targetLang ||
+          promptLanguages.variant !== translationVariant
         
         if (needsNewPrompt) {
           // Cancel any existing prompt request
@@ -341,7 +343,7 @@ export const useSpeechRecognition = ({
             // Only update if request wasn't cancelled and is still the current request
             if (!currentAbortController.signal.aborted && abortControllerRef.current === currentAbortController) {
               setCachedPrompt(newPrompt)
-              setPromptLanguages({ source: sourceLang, target: targetLang })
+              setPromptLanguages({ source: sourceLang, target: targetLang, variant: translationVariant })
               promptRef.current = newPrompt
             }
           } catch (error) {
@@ -409,25 +411,33 @@ export const useSpeechRecognition = ({
           'warning'
         )
       }
-    }, 500), // 500ms debounce delay
-    [isRecording, promptLanguages, translationVariant, onError]
-  )
+  }, [isRecording, promptLanguages, translationVariant, onError])
 
-  // Handle language changes during recording with debouncing
+  // Handle language changes during recording with debouncing.
+  // The timeout ID is tracked in languageChangeTimeoutRef so it can be cancelled
+  // on effect cleanup (dep change or unmount). The old debounce() utility stored
+  // the ID in a closure-local variable that became unreachable whenever useCallback
+  // recreated the function, making cancellation impossible.
   useEffect(() => {
     if (!recognitionRef.current || !isRecording) return
-    
-    // Store pending language change
+
     pendingLanguageChangeRef.current = { source: sourceLanguage, target: targetLanguage }
-    
-    // Clear any existing timeout
+
     if (languageChangeTimeoutRef.current) {
       clearTimeout(languageChangeTimeoutRef.current)
     }
-    
-    // Debounce the language change
-    debouncedLanguageChange(sourceLanguage, targetLanguage)
-  }, [sourceLanguage, targetLanguage, isRecording, debouncedLanguageChange])
+
+    languageChangeTimeoutRef.current = setTimeout(() => {
+      handleLanguageChange(sourceLanguage, targetLanguage)
+    }, 500)
+
+    return () => {
+      if (languageChangeTimeoutRef.current) {
+        clearTimeout(languageChangeTimeoutRef.current)
+        languageChangeTimeoutRef.current = null
+      }
+    }
+  }, [sourceLanguage, targetLanguage, isRecording, handleLanguageChange])
 
   // Start recording with language change protection
   const startRecording = useCallback(async () => {
@@ -544,7 +554,7 @@ export const useSpeechRecognition = ({
           // Only update if request wasn't cancelled and is still the current request
           if (!currentAbortController.signal.aborted && abortControllerRef.current === currentAbortController) {
             setCachedPrompt(prompt)
-            setPromptLanguages({ source: chosenSource, target: chosenTarget })
+            setPromptLanguages({ source: chosenSource, target: chosenTarget, variant: translationVariant })
           }
         } catch (error) {
           // Don't show error if request was cancelled
@@ -603,6 +613,10 @@ export const useSpeechRecognition = ({
         return
       }
       
+      // Reset cross-session deduplication state so IDs and content hashes from a
+      // previous session do not reject valid translations in this new session.
+      resetValidationState()
+
       // STEP 3: Start session tracking (fire and forget - non-blocking)
       // This starts the session but we don't wait for it
       startUsageSession().catch((err) => {
@@ -681,11 +695,12 @@ export const useSpeechRecognition = ({
   }, [
     isRecording,
     isStarting,
-    isValidForTranslation, 
-    sessionData, 
-    totalUsageMinutes, 
-    sourceLanguage, 
-    targetLanguage, 
+    isLanguageChanging,
+    isValidForTranslation,
+    sessionData,
+    totalUsageMinutes,
+    sourceLanguage,
+    targetLanguage,
     translationVariant,
     cachedPrompt,
     isPromptValid,

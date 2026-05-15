@@ -7,7 +7,6 @@ import LivingSermonStream from './LivingSermonStream';
 import CorePillars from './CorePillars';
 import VideoDemo from './VideoDemo';
 import SocialProof from './SocialProof';
-import WhyChooseUs from './WhyChooseUs';
 import Footer from './Footer';
 
 /**
@@ -22,7 +21,6 @@ export const LandingPage: React.FC = () => {
       <LivingSermonStream />
       <VideoDemo />
       <CorePillars />
-      <WhyChooseUs />
       <SocialProof />
       <Footer />
     </>

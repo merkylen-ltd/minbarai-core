@@ -1,5 +1,5 @@
 import React from 'react'
-import { Mic, MicOff, Download, Eye, EyeOff, Maximize2, Minimize2, Trash2 } from 'lucide-react'
+import { Mic, MicOff, Download, FileDown, Eye, EyeOff, Maximize2, Minimize2, Trash2 } from 'lucide-react'
 import { LanguagePairSelector } from '@/components/ui/language-selector'
 import { ConnectionStatus, TranslationVariant } from './types'
 import { TranslationVariantSelector } from './TranslationVariantSelector'
@@ -46,6 +46,8 @@ interface ControlPanelProps {
   // Actions
   onClear: () => void
   onDownload: () => void
+  onDownloadPDF: () => void
+  isPDFGenerating: boolean
   hasContent: boolean
 }
 
@@ -80,6 +82,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   usageStatus,
   onClear,
   onDownload,
+  onDownloadPDF,
+  isPDFGenerating,
   hasContent
 }) => {
   return (
@@ -222,6 +226,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           onClick={onClear}
           className="inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50"
           title="Clear all transcription text (C)"
+          aria-label="Clear all transcription text"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -230,11 +235,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <button
           onClick={onToggleSourcePanel}
           className={`inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            showSourcePanel 
-              ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500' 
+            showSourcePanel
+              ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500'
               : 'bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50'
           }`}
           title={`${showSourcePanel ? 'Hide source panel (H)' : 'Show source panel (H)'}`}
+          aria-label={`${showSourcePanel ? 'Hide source panel' : 'Show source panel'}`}
         >
           {showSourcePanel ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
@@ -263,11 +269,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <button
           onClick={onToggleFullscreen}
           className={`inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            isFullscreen 
-              ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500' 
+            isFullscreen
+              ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500'
               : 'bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50'
           }`}
           title={`${isFullscreen ? 'Exit fullscreen mode (F)' : 'Enter fullscreen mode (F)'}`}
+          aria-label={`${isFullscreen ? 'Exit fullscreen mode' : 'Enter fullscreen mode'}`}
         >
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </button>
@@ -278,8 +285,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           className="inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50"
           disabled={!hasContent}
           title={hasContent ? "Download transcript as text file" : "No content to download"}
+          aria-label="Download transcript as text file"
         >
           <Download className="h-4 w-4" />
+        </button>
+
+        {/* 9. PDF Download Button */}
+        <button
+          onClick={onDownloadPDF}
+          disabled={!hasContent || isPDFGenerating}
+          className="inline-flex items-center justify-center h-10 px-3 gap-1.5 text-xs font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500"
+          title={!hasContent ? "No content to download" : isPDFGenerating ? "Generating PDF..." : "Download transcript as PDF"}
+          aria-label={isPDFGenerating ? "Generating PDF…" : "Download transcript as PDF"}
+        >
+          {isPDFGenerating ? (
+            <span className="w-2 h-2 rounded-full bg-accent-400 animate-pulse" />
+          ) : (
+            <FileDown className="h-4 w-4" />
+          )}
+          <span>PDF</span>
         </button>
       </div>
 

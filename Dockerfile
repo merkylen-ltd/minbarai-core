@@ -1,8 +1,8 @@
 # Ultra-slim Dockerfile for Next.js on Google Cloud Run
 # Optimized for minimal attack surface, maximum performance, and ultra-low latency
 
-# Stage 1: Dependencies - Ultra-minimal base
-FROM node:18-alpine AS deps
+# Stage 1: Dependencies - Node 20 (resend requires >=20), resilient npm for CI
+FROM node:20-alpine AS deps
 RUN apk add --no-cache --virtual .build-deps \
     python3 \
     make \
@@ -14,14 +14,19 @@ WORKDIR /app
 # Copy package files with exact versions
 COPY package.json package-lock.json* ./
 
+# More resilient npm for flaky networks (retries + longer timeout)
+RUN npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm config set fetch-timeout 120000
+
 # Install all dependencies (including dev dependencies for build)
-RUN npm ci --no-audit --no-fund --prefer-offline \
+RUN npm ci --no-audit --no-fund \
     && npm cache clean --force \
     && apk del .build-deps \
     && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
 
-# Stage 2: Builder - Optimized build environment
-FROM node:18-alpine AS builder
+# Stage 2: Builder - Optimized build environment (Node 20)
+FROM node:20-alpine AS builder
 RUN apk add --no-cache --virtual .build-deps \
     python3 \
     make \
@@ -64,8 +69,8 @@ RUN npm run build \
     && rm -rf /var/cache/apk/* /tmp/* /var/tmp/* /app/node_modules \
     && mkdir -p /app/.next/cache
 
-# Stage 3: Ultra-slim Runtime - Alpine-based for better compatibility
-FROM node:18-alpine AS runner
+# Stage 3: Ultra-slim Runtime - Alpine-based (Node 20)
+FROM node:20-alpine AS runner
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init

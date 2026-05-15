@@ -207,17 +207,39 @@ export async function DELETE(request: NextRequest) {
       }
     )
 
-    console.log(`Subscription ${userData.subscription_id} immediately canceled`)
-
-    // The webhook will handle database updates, but we can update immediately for faster UX
+    // Optimistic DB update — webhook will overwrite with Stripe's authoritative values.
+    // Set period_end to NOW (not null): a null period_end bypasses the expiry gate in
+    // ping/stream, giving the user permanent free access after cancellation.
+    const canceledNow = new Date()
     await supabase
       .from('users')
       .update({
         subscription_status: 'canceled',
-        subscription_period_end: null, // No period end for immediate cancellation
-        updated_at: new Date().toISOString(),
+        subscription_period_end: canceledNow.toISOString(),
+        updated_at: canceledNow.toISOString(),
       })
       .eq('id', user.id)
+
+    // Close any active usage session immediately — access is revoked now
+    const { data: activeSession } = await supabase
+      .from('usage_sessions')
+      .select('id, started_at, max_end_at')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle()
+    if (activeSession) {
+      const endedAt = new Date(Math.min(canceledNow.getTime(), new Date(activeSession.max_end_at).getTime()))
+      await supabase
+        .from('usage_sessions')
+        .update({
+          status: 'closed',
+          ended_at: endedAt.toISOString(),
+          duration_seconds: Math.max(0, Math.floor((endedAt.getTime() - new Date(activeSession.started_at).getTime()) / 1000)),
+          updated_at: canceledNow.toISOString(),
+        })
+        .eq('id', activeSession.id)
+        .eq('status', 'active')
+    }
 
     return NextResponse.json({
       success: true,

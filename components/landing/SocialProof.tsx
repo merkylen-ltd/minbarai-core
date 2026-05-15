@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import ScrollArrow from '../ui/scroll-arrow';
+import BookADemoButton from './BookADemoButton';
 
 const SocialProof: React.FC = () => {
   return (
@@ -61,12 +62,7 @@ const SocialProof: React.FC = () => {
               Join Muslims worldwide who are breaking language barriers with MinbarAI.
             </p>
           </div>
-          <Link 
-            href="/auth/signup"
-            className="hidden btn-primary"
-          >
-            Get Started Today
-          </Link>
+          <BookADemoButton className="btn-primary" />
           
           <p className="text-neutral-400 text-xs mt-4">
             By signing up, you agree to our{' '}

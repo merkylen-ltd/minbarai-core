@@ -132,22 +132,31 @@ export const generateSecurePassword = (length: number = 12): string => {
   const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const numbers = '0123456789';
   const special = '@$!%*?&';
-  
+
   const allChars = lowercase + uppercase + numbers + special;
-  
+
+  // Cryptographically secure random integer in [0, max)
+  const secureRandInt = (max: number): number =>
+    Math.floor(crypto.getRandomValues(new Uint32Array(1))[0] / (0xffffffff + 1) * max);
+
   let password = '';
-  
+
   // Ensure at least one character from each category
-  password += lowercase[Math.floor(Math.random() * lowercase.length)];
-  password += uppercase[Math.floor(Math.random() * uppercase.length)];
-  password += numbers[Math.floor(Math.random() * numbers.length)];
-  password += special[Math.floor(Math.random() * special.length)];
-  
+  password += lowercase[secureRandInt(lowercase.length)];
+  password += uppercase[secureRandInt(uppercase.length)];
+  password += numbers[secureRandInt(numbers.length)];
+  password += special[secureRandInt(special.length)];
+
   // Fill the rest randomly
   for (let i = 4; i < length; i++) {
-    password += allChars[Math.floor(Math.random() * allChars.length)];
+    password += allChars[secureRandInt(allChars.length)];
   }
-  
-  // Shuffle the password
-  return password.split('').sort(() => Math.random() - 0.5).join('');
+
+  // Fisher-Yates shuffle using secure random
+  const arr = password.split('');
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = secureRandInt(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.join('');
 };

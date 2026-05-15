@@ -61,9 +61,9 @@ export async function GET(request: NextRequest) {
     const enrichedUsers = await Promise.all(
       (users || []).map(async (userData) => {
         try {
-          if (userData.stripe_subscription_id && stripeClient) {
+          if (userData.subscription_id && stripeClient) {
             const subscription = await stripeClient.subscriptions.retrieve(
-              userData.stripe_subscription_id
+              userData.subscription_id
             )
             
             return {

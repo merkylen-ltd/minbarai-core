@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { checkRateLimit, RATE_LIMIT_CONFIGS, getUserRateLimitKey } from '@/lib/auth/rate-limiting'
+import { checkRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/auth/rate-limiting'
 import { checkAccountLockout, recordFailedAttempt, clearFailedAttempts, ACCOUNT_LOCKOUT_CONFIGS } from '@/lib/auth/account-lockout'
 import { sanitizeEmail, validateEmailStrict } from '@/lib/auth/email-validation'
 import { authLogger } from '@/lib/auth/secure-logger'
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting check
-    const rateLimitResult = checkRateLimit(request, RATE_LIMIT_CONFIGS.AUTH)
+    const rateLimitResult = await checkRateLimit(request, RATE_LIMIT_CONFIGS.AUTH)
     
     if (!rateLimitResult.allowed) {
       authLogger.rateLimitExceeded(request.ip || 'unknown', '/api/auth/signin')
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check account lockout before attempting sign-in
-    const lockoutResult = checkAccountLockout(sanitizedEmail, ACCOUNT_LOCKOUT_CONFIGS.STANDARD)
+    const lockoutResult = await checkAccountLockout(sanitizedEmail, ACCOUNT_LOCKOUT_CONFIGS.STANDARD)
     
     if (lockoutResult.isLocked) {
       authLogger.accountLocked(sanitizedEmail, new Date(lockoutResult.lockoutUntil!))
@@ -131,8 +131,8 @@ export async function POST(request: NextRequest) {
       }
       
       // Record failed attempt for account lockout if applicable
-      const lockoutResult = shouldRecordFailedAttempt 
-        ? recordFailedAttempt(sanitizedEmail, ACCOUNT_LOCKOUT_CONFIGS.STANDARD)
+      const lockoutResult = shouldRecordFailedAttempt
+        ? await recordFailedAttempt(sanitizedEmail, ACCOUNT_LOCKOUT_CONFIGS.STANDARD)
         : { isLocked: false, remainingAttempts: ACCOUNT_LOCKOUT_CONFIGS.STANDARD.maxAttempts, lockoutUntil: undefined, retryAfter: undefined }
       
       // Return appropriate error message

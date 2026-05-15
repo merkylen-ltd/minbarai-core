@@ -39,12 +39,12 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    if (!userData.stripe_subscription_id || !stripe) {
+    if (!userData.subscription_id || !stripe) {
       return NextResponse.json({ error: 'No Stripe subscription found' }, { status: 404 })
     }
 
     // Fetch latest data from Stripe
-    const subscription = await stripe.subscriptions.retrieve(userData.stripe_subscription_id)
+    const subscription = await stripe.subscriptions.retrieve(userData.subscription_id)
     const customer = await stripe.customers.retrieve(subscription.customer as string)
 
     // Prepare update data

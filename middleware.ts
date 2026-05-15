@@ -4,10 +4,25 @@ import { isValidSubscriptionStatus, isCancelledSubscriptionActive } from '@/lib/
 import { securityHeadersMiddleware } from '@/lib/auth/security-headers'
 import { isAdminUser } from '@/lib/auth/admin'
 
+// GRACE PERIOD LOGIC:
+// Cancelled subscriptions continue to work until subscription_period_end passes.
+// This grace period allows users to have uninterrupted access after cancellation.
+// See lib/subscription.ts for CANCELLED_GRACE_PERIOD_DAYS constant.
+//
+// CACHING BEHAVIOR:
+// Subscription state is not re-checked on every request for authenticated users
+// already on /dashboard. The user's session cookie is the source of truth until
+// it refreshes. This means:
+// 1. If a subscription expires while a user is actively browsing, they won't be
+//    immediately logged out (they'll be redirected on next navigation).
+// 2. If a subscription is reactivated, the user might need to refresh to see changes.
+// This is acceptable for the UX vs. the cost of querying the database on every request.
+
 // Type for user data we need from the database
 interface UserSubscriptionData {
   subscription_status: string | null
   subscription_period_end: string | null
+  is_suspended: boolean
 }
 
 export async function middleware(request: NextRequest) {
@@ -18,10 +33,10 @@ export async function middleware(request: NextRequest) {
   
   const supabase = createMiddlewareClient(request, securedResponse)
 
-  // Refresh session if expired - required for Server Components
+  // Use getUser() to validate the session against Supabase Auth (not just cookie storage)
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    data: { user },
+  } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
 
@@ -33,7 +48,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Require authentication
-    if (!session) {
+    if (!user) {
       const loginUrl = new URL('/auth/signin', request.url)
       loginUrl.searchParams.set('redirect', pathname)
       loginUrl.searchParams.set('message', 'Please sign in to access the admin panel')
@@ -41,7 +56,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Require admin privileges
-    if (!isAdminUser(session.user.email)) {
+    if (!isAdminUser(user.email)) {
       const dashboardUrl = new URL('/dashboard', request.url)
       dashboardUrl.searchParams.set('error', 'Access denied: Admin privileges required')
       return securityHeadersMiddleware(request, NextResponse.redirect(dashboardUrl))
@@ -52,17 +67,19 @@ export async function middleware(request: NextRequest) {
   }
 
   // Early return for paths that don't need user data lookup
-  const needsUserCheck = pathname.startsWith('/dashboard') || (pathname.startsWith('/auth/') && session)
-  
+  const needsUserCheck = pathname.startsWith('/dashboard') ||
+    (pathname.startsWith('/subscribe') && !!user) ||
+    (pathname.startsWith('/auth/') && !!user)
+
   // Single database query for routes that need subscription data
   let userData: UserSubscriptionData | null = null
-  if (needsUserCheck && session) {
+  if (needsUserCheck && user) {
     const { data, error } = await supabase
       .from('users')
-      .select('subscription_status, subscription_period_end')
-      .eq('id', session.user.id)
+      .select('subscription_status, subscription_period_end, is_suspended')
+      .eq('id', user.id)
       .single()
-    
+
     if (error && error.code !== 'PGRST116') {
       console.error('Middleware: Database error:', error.message)
     }
@@ -71,12 +88,17 @@ export async function middleware(request: NextRequest) {
 
   // Protect dashboard routes
   if (pathname.startsWith('/dashboard')) {
-    if (!session) {
+    if (!user) {
       return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/auth/signin', request.url)))
     }
 
     if (!userData) {
       return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
+    }
+
+    // Admin-suspended users are blocked regardless of Stripe state
+    if (userData.is_suspended) {
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/auth/suspended', request.url)))
     }
 
     // Check if cancelled subscription is still within paid period
@@ -97,8 +119,28 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Redirect authenticated users with an active subscription away from /subscribe → /dashboard
+  if (pathname.startsWith('/subscribe') && user && userData) {
+    if (userData.is_suspended) {
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/auth/suspended', request.url)))
+    }
+
+    // Mirror the dashboard middleware exactly: only redirect to /dashboard when
+    // the user would actually be allowed in (avoids a /subscribe ↔ /dashboard loop
+    // for canceled users whose period has expired).
+    const hasValidSub =
+      userData.subscription_status === 'active' ||
+      userData.subscription_status === 'incomplete' ||
+      (userData.subscription_status === 'canceled' &&
+        isCancelledSubscriptionActive(userData.subscription_status, userData.subscription_period_end))
+
+    if (hasValidSub) {
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/dashboard', request.url)))
+    }
+  }
+
   // Redirect authenticated users away from auth pages (but allow callback redirects with messages)
-  if (pathname.startsWith('/auth/') && session) {
+  if (pathname.startsWith('/auth/') && user) {
     // Allow auth pages with URL parameters (messages from callback)
     if (request.nextUrl.searchParams.has('message')) {
       return securedResponse

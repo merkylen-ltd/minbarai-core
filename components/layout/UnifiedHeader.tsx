@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { User, CreditCard, Mic, ArrowLeft } from 'lucide-react';
 import SignOutButton from '@/components/dashboard/SignOutButton';
 import { createClient } from '@/lib/supabase/client';
+import { BOOK_A_DEMO_CALENDAR_URL } from '@/lib/constants';
+import { useIsAdmin } from '@/lib/hooks/useIsAdmin';
 
 const LogoIcon: React.FC<{ className?: string }> = ({ className }) => {
   return (
@@ -45,6 +47,7 @@ const LogoIcon: React.FC<{ className?: string }> = ({ className }) => {
 interface UnifiedHeaderProps {
   variant?: 'landing' | 'dashboard' | 'billing';
   userEmail?: string;
+  isAdmin?: boolean;
   showBackButton?: boolean;
   backButtonHref?: string;
   backButtonText?: string;
@@ -53,6 +56,7 @@ interface UnifiedHeaderProps {
 const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
   variant = 'landing',
   userEmail,
+  isAdmin = false,
   showBackButton = false,
   backButtonHref = '/dashboard',
   backButtonText = 'Back to Dashboard'
@@ -60,27 +64,22 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Use prop when passed from server component; fall back to hook for client-rendered pages
+  const adminFromHook = useIsAdmin();
+  const effectiveIsAdmin = isAdmin || adminFromHook;
 
   useEffect(() => {
     const checkAuthStatus = async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      
       if (user) {
         setIsAuthenticated(true);
         setCurrentUserEmail(user.email || '');
-        
-        // Check if user is admin
-        const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS?.split(',') || [];
-        setIsAdmin(adminEmails.includes(user.email || ''));
       } else {
         setIsAuthenticated(false);
         setCurrentUserEmail('');
-        setIsAdmin(false);
       }
     };
-
     checkAuthStatus();
   }, []);
 
@@ -168,18 +167,16 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                 <span>Dashboard</span>
               </Link>
               
-              {variant === 'dashboard' && (
-                <Link
-                  href="/dashboard/billing"
-                  className="flex items-center space-x-2 text-neutral-400 hover:text-white transition-colors text-sm"
-                >
-                  <CreditCard className="h-4 w-4" />
-                  <span>Billing</span>
-                </Link>
-              )}
+              <Link
+                href="/dashboard/billing"
+                className="flex items-center space-x-2 text-neutral-400 hover:text-white transition-colors text-sm"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span>Billing</span>
+              </Link>
               
               {/* Admin Panel Link - Only show for admin users */}
-              {isAdmin && variant !== 'landing' && (
+              {effectiveIsAdmin && (
                 <Link
                   href="/admin"
                   className="flex items-center space-x-2 text-neutral-400 hover:text-accent-400 transition-colors text-sm"
@@ -204,10 +201,12 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                 Sign In
               </Link>
               <Link
-                href="/auth/signup"
-                className="hidden bg-accent-500 hover:bg-accent-400 text-neutral-0 px-4 py-2 rounded-button text-fluid-sm font-heading transition-all duration-200 shadow-glow hover:shadow-glow-lg focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 focus:ring-offset-primary-900 min-h-[44px] md:min-h-0 flex items-center"
+                href={BOOK_A_DEMO_CALENDAR_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-accent-500 hover:bg-accent-400 text-neutral-0 px-4 py-2 rounded-button text-fluid-sm font-heading transition-all duration-200 shadow-glow hover:shadow-glow-lg focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 focus:ring-offset-primary-900 min-h-[44px] md:min-h-0 flex items-center"
               >
-                Sign Up
+                Book a Demo
               </Link>
             </div>
           )}
@@ -266,19 +265,17 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                     Dashboard
                   </Link>
                   
-                  {variant === 'dashboard' && (
-                    <Link
-                      href="/dashboard/billing"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className="text-neutral-50 hover:text-accent-400 hover:bg-primary-600/50 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 min-h-[44px] flex items-center"
-                    >
-                      <CreditCard className="h-4 w-4 inline mr-2" />
-                      Billing
-                    </Link>
-                  )}
+                  <Link
+                    href="/dashboard/billing"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="text-neutral-50 hover:text-accent-400 hover:bg-primary-600/50 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 min-h-[44px] flex items-center"
+                  >
+                    <CreditCard className="h-4 w-4 inline mr-2" />
+                    Billing
+                  </Link>
                   
                   {/* Admin Panel Link - Mobile */}
-                  {isAdmin && variant !== 'landing' && (
+                  {effectiveIsAdmin && (
                     <Link
                       href="/admin"
                       onClick={() => setIsMobileMenuOpen(false)}
@@ -307,11 +304,13 @@ const UnifiedHeader: React.FC<UnifiedHeaderProps> = ({
                   Sign In
                 </Link>
                 <Link
-                  href="/auth/signup"
+                  href={BOOK_A_DEMO_CALENDAR_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="hidden bg-accent-500 hover:bg-accent-400 text-neutral-0 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 mx-3 mt-2 text-center min-h-[44px] flex items-center justify-center"
+                  className="bg-accent-500 hover:bg-accent-400 text-neutral-0 block px-3 py-3 rounded-button text-fluid-sm font-body transition-all duration-300 mx-3 mt-2 text-center min-h-[44px] flex items-center justify-center"
                 >
-                  Sign Up
+                  Book a Demo
                 </Link>
               </div>
             )}

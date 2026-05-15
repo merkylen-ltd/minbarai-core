@@ -1,159 +1,196 @@
 /**
  * Email Templates for Admin Messages
- * 
- * Generates HTML email templates for messages sent by admins to users.
+ *
+ * Generates HTML email templates for messages sent by admins to users:
+ * admin messages, account suspension, and reactivation notifications.
+ * Consistent with website brand colors and design system.
  */
 
-/**
- * Generate HTML email template for admin-sent message
- * @param subject - Email subject
- * @param message - Message content (plain text, will be escaped)
- * @param senderName - Name of admin sending the message (optional)
- * @returns HTML string for email body
- */
-export function generateAdminMessageHtml(
-  subject: string,
-  message: string,
-  senderName?: string
-): string {
-  // Escape HTML in message to prevent injection
-  const escapedMessage = escapeHtml(message)
-  const sender = senderName ? `${senderName} from ` : ''
-  
-  return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${escapeHtml(subject)}</title>
-      </head>
-      <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1F2937; background-color: #F9FAFB; margin: 0; padding: 0;">
-        <div style="max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-          <!-- Header -->
-          <div style="background: linear-gradient(135deg, #0D1B20 0%, #1A2E35 50%, #2A4047 100%); padding: 40px 30px; text-align: center;">
-            <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0;">MinbarAI</h1>
-            <p style="color: #55a39a; font-size: 16px; margin: 10px 0 0 0;">Message from ${sender}MinbarAI Team</p>
-          </div>
-          
-          <!-- Content -->
-          <div style="padding: 40px 30px;">
-            <h2 style="color: #0D1B20; font-size: 24px; font-weight: 600; margin: 0 0 20px 0;">${escapeHtml(subject)}</h2>
-            
-            <!-- Message Box -->
-            <div style="background-color: #F9FAFB; border-left: 4px solid #55a39a; padding: 24px; margin: 0 0 30px 0; border-radius: 4px;">
-              <p style="color: #4B5563; font-size: 16px; margin: 0; white-space: pre-wrap;">${escapedMessage}</p>
-            </div>
-            
-            <!-- Call to Action -->
-            <div style="text-align: center; margin-top: 30px;">
-              <a href="https://minbarai.com/dashboard" style="display: inline-block; background-color: #55a39a; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 500;">Go to Dashboard</a>
-            </div>
-            
-            <!-- Help Text -->
-            <div style="margin-top: 30px; padding-top: 30px; border-top: 1px solid #E5E7EB;">
-              <p style="color: #6B7280; font-size: 14px; margin: 0 0 10px 0;">Need help? Have questions?</p>
-              <p style="color: #6B7280; font-size: 14px; margin: 0;">Reply to this email or visit our support page.</p>
-            </div>
-          </div>
-          
-          <!-- Footer -->
-          <div style="background-color: #F9FAFB; padding: 30px; text-align: center; border-top: 1px solid #E5E7EB;">
-            <p style="color: #6B7280; font-size: 14px; margin: 0 0 10px 0;">© 2026 MinbarAI. All rights reserved.</p>
-            <p style="color: #9CA3AF; font-size: 12px; margin: 0;">Live Khutba Captioning and Translation</p>
-          </div>
-        </div>
-      </body>
-    </html>
-  `
-}
-
-/**
- * Generate HTML email template for account suspension notification
- * @param reason - Reason for suspension (optional)
- * @returns HTML string for email body
- */
-export function generateSuspensionEmailHtml(reason?: string): string {
-  const reasonText = reason 
-    ? `<p style="color: #4B5563; font-size: 16px; margin: 0 0 20px 0;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>`
-    : ''
-  
-  return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Account Suspended</title>
-      </head>
-      <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1F2937; background-color: #F9FAFB; margin: 0; padding: 0;">
-        <div style="max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-          <div style="background: linear-gradient(135deg, #991B1B 0%, #B91C1C 50%, #DC2626 100%); padding: 40px 30px; text-align: center;">
-            <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0;">Account Suspended</h1>
-          </div>
-          <div style="padding: 40px 30px;">
-            <p style="color: #4B5563; font-size: 16px; margin: 0 0 20px 0;">Your MinbarAI account has been temporarily suspended.</p>
-            ${reasonText}
-            <p style="color: #4B5563; font-size: 16px; margin: 0 0 30px 0;">If you believe this is a mistake or would like to appeal this decision, please contact our support team.</p>
-            <div style="text-align: center;">
-              <a href="mailto:support@minbarai.com" style="display: inline-block; background-color: #55a39a; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 500;">Contact Support</a>
-            </div>
-          </div>
-          <div style="background-color: #F9FAFB; padding: 30px; text-align: center; border-top: 1px solid #E5E7EB;">
-            <p style="color: #6B7280; font-size: 14px; margin: 0;">© 2026 MinbarAI. All rights reserved.</p>
-          </div>
-        </div>
-      </body>
-    </html>
-  `
-}
-
-/**
- * Generate HTML email template for account reactivation notification
- * @returns HTML string for email body
- */
-export function generateReactivationEmailHtml(): string {
-  return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Account Reactivated</title>
-      </head>
-      <body style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1F2937; background-color: #F9FAFB; margin: 0; padding: 0;">
-        <div style="max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-          <div style="background: linear-gradient(135deg, #047857 0%, #059669 50%, #10B981 100%); padding: 40px 30px; text-align: center;">
-            <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0;">Welcome Back!</h1>
-          </div>
-          <div style="padding: 40px 30px;">
-            <p style="color: #4B5563; font-size: 16px; margin: 0 0 20px 0;">Good news! Your MinbarAI account has been reactivated.</p>
-            <p style="color: #4B5563; font-size: 16px; margin: 0 0 30px 0;">You can now access all features and services. Thank you for your patience.</p>
-            <div style="text-align: center;">
-              <a href="https://minbarai.com/dashboard" style="display: inline-block; background-color: #55a39a; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 500;">Go to Dashboard</a>
-            </div>
-          </div>
-          <div style="background-color: #F9FAFB; padding: 30px; text-align: center; border-top: 1px solid #E5E7EB;">
-            <p style="color: #6B7280; font-size: 14px; margin: 0;">© 2026 MinbarAI. All rights reserved.</p>
-          </div>
-        </div>
-      </body>
-    </html>
-  `
-}
-
-/**
- * Escape HTML special characters to prevent injection
- * @param text - Text to escape
- * @returns Escaped text
- */
 function escapeHtml(text: string): string {
-  const map: { [key: string]: string } = {
+  const map: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
     '"': '&quot;',
     "'": '&#039;',
   }
-  return text.replace(/[&<>"']/g, (char) => map[char])
+  return text.replace(/[&<>"']/g, (c) => map[c])
+}
+
+// Shared CSS constants — matches tailwind config
+const FONT = `font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;`
+const COLOR_PRIMARY_900 = '#0D1B20'
+const COLOR_PRIMARY_800 = '#1A2E35'
+const COLOR_ACCENT = '#55a39a'
+const COLOR_NEUTRAL_600 = '#4B5563'
+const COLOR_NEUTRAL_400 = '#9CA3AF'
+const COLOR_NEUTRAL_50 = '#F9FAFB'
+const COLOR_NEUTRAL_200 = '#E5E7EB'
+
+function headerStandard(heading: string, subheading?: string): string {
+  return `
+    <div style="background: linear-gradient(135deg, ${COLOR_PRIMARY_900} 0%, ${COLOR_PRIMARY_800} 50%, #2A4047 100%); padding: 48px 40px; text-align: center;">
+      <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0; letter-spacing: -0.5px;">${escapeHtml(heading)}</h1>
+      ${
+        subheading
+          ? `<p style="color: rgba(255,255,255,0.75); font-size: 16px; margin: 14px 0 0 0; line-height: 1.5;">${escapeHtml(subheading)}</p>`
+          : ''
+      }
+    </div>`
+}
+
+function headerAlert(heading: string, bgGradient: string): string {
+  return `
+    <div style="background: ${bgGradient}; padding: 48px 40px; text-align: center;">
+      <h1 style="color: #FFFFFF; font-size: 32px; font-weight: 600; margin: 0; letter-spacing: -0.5px;">${escapeHtml(heading)}</h1>
+    </div>`
+}
+
+function footer(): string {
+  return `
+    <div style="background-color: ${COLOR_NEUTRAL_50}; padding: 32px 40px; text-align: center; border-top: 1px solid ${COLOR_NEUTRAL_200};">
+      <p style="color: #6B7280; font-size: 13px; margin: 0;">© 2026 MinbarAI. All rights reserved.</p>
+      <p style="color: #9CA3AF; font-size: 12px; margin: 8px 0 0 0;">
+        <a href="https://minbarai.com" style="color: ${COLOR_ACCENT}; text-decoration: none;">Live Khutba Captioning and Translation</a>
+      </p>
+    </div>`
+}
+
+function ctaButton(href: string, label: string, color = COLOR_ACCENT): string {
+  return `
+    <div style="text-align: center; margin-top: 32px;">
+      <a href="${escapeHtml(href)}"
+         style="display: inline-block; background-color: ${color}; color: #FFFFFF; text-decoration: none;
+                padding: 14px 36px; border-radius: 8px; font-size: 15px; font-weight: 600; letter-spacing: 0.5px;">
+        ${escapeHtml(label)}
+      </a>
+    </div>`
+}
+
+function wrap(innerHtml: string): string {
+  return `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      a { color: ${COLOR_ACCENT}; }
+    </style>
+  </head>
+  <body style="${FONT} line-height: 1.6; color: ${COLOR_NEUTRAL_600}; background-color: ${COLOR_NEUTRAL_50}; margin: 0; padding: 0;">
+    <table style="width: 100%; max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-collapse: collapse;">
+      <tbody>
+        <tr>
+          <td style="padding: 0;">
+            ${innerHtml}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>`
+}
+
+// ---------------------------------------------------------------------------
+// Admin Message — Custom message from admin/support
+// ---------------------------------------------------------------------------
+
+export function generateAdminMessageHtml(
+  subject: string,
+  message: string,
+  senderName?: string
+): string {
+  const senderLine = senderName
+    ? `Message from ${escapeHtml(senderName)} from MinbarAI Team`
+    : 'Message from MinbarAI Team'
+
+  return wrap(`
+    ${headerStandard(subject)}
+    <div style="padding: 48px 40px;">
+      <h2 style="color: ${COLOR_PRIMARY_900}; font-size: 24px; font-weight: 600; margin: 0 0 24px 0;">${escapeHtml(subject)}</h2>
+
+      <div style="background: ${COLOR_NEUTRAL_50}; border-left: 4px solid ${COLOR_ACCENT}; padding: 24px; border-radius: 8px; margin: 0 0 28px 0;">
+        <div style="color: ${COLOR_NEUTRAL_600}; font-size: 14px; line-height: 1.7; white-space: pre-wrap; margin: 0;">
+          ${escapeHtml(message)}
+        </div>
+      </div>
+
+      ${ctaButton('https://minbarai.com/dashboard', 'Go to Dashboard')}
+
+      <p style="color: ${COLOR_NEUTRAL_400}; font-size: 13px; text-align: center; margin-top: 32px; padding-top: 24px; border-top: 1px solid ${COLOR_NEUTRAL_200};">
+        ${senderLine}
+      </p>
+    </div>
+    ${footer()}
+  `)
+}
+
+// ---------------------------------------------------------------------------
+// Account Suspension
+// ---------------------------------------------------------------------------
+
+export function generateSuspensionEmailHtml(reason?: string): string {
+  return wrap(`
+    ${headerAlert('Account Suspended', 'linear-gradient(135deg, #991B1B 0%, #B91C1C 50%, #DC2626 100%)')}
+    <div style="padding: 48px 40px;">
+      <p style="color: ${COLOR_NEUTRAL_600}; font-size: 15px; line-height: 1.7; margin: 0 0 24px 0;">
+        Your MinbarAI account has been temporarily suspended.
+      </p>
+
+      ${
+        reason
+          ? `<div style="background: #FEF2F2; border-left: 4px solid #DC2626; padding: 24px; border-radius: 8px; margin: 0 0 28px 0;">
+              <p style="color: #7F1D1D; font-size: 14px; font-weight: 500; margin: 0 0 8px 0;">Reason:</p>
+              <p style="color: ${COLOR_NEUTRAL_600}; font-size: 14px; margin: 0;">
+                ${escapeHtml(reason)}
+              </p>
+            </div>`
+          : ''
+      }
+
+      <p style="color: ${COLOR_NEUTRAL_600}; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">
+        If you believe this is a mistake or would like to appeal this decision, please contact our support team immediately.
+      </p>
+
+      ${ctaButton('mailto:support@minbarai.com', 'Contact Support', '#DC2626')}
+
+      <p style="color: ${COLOR_NEUTRAL_400}; font-size: 13px; text-align: center; margin-top: 32px; padding-top: 24px; border-top: 1px solid ${COLOR_NEUTRAL_200};">
+        We take account security and compliance seriously. Our support team will work with you to resolve this.
+      </p>
+    </div>
+    ${footer()}
+  `)
+}
+
+// ---------------------------------------------------------------------------
+// Account Reactivation
+// ---------------------------------------------------------------------------
+
+export function generateReactivationEmailHtml(): string {
+  return wrap(`
+    ${headerAlert('Welcome Back!', 'linear-gradient(135deg, #047857 0%, #059669 50%, #10B981 100%)')}
+    <div style="padding: 48px 40px;">
+      <div style="background: #F0FDF4; border-left: 4px solid #10B981; padding: 24px; border-radius: 8px; margin: 0 0 28px 0;">
+        <p style="color: #065F46; font-size: 14px; font-weight: 500; margin: 0;">
+          ✓ Your account has been reactivated
+        </p>
+      </div>
+
+      <p style="color: ${COLOR_NEUTRAL_600}; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">
+        Good news! Your MinbarAI account has been restored and is now fully accessible. You can resume using all features immediately.
+      </p>
+
+      <p style="color: ${COLOR_NEUTRAL_600}; font-size: 15px; line-height: 1.7; margin: 0 0 20px 0;">
+        Thank you for your patience during the review period.
+      </p>
+
+      ${ctaButton('https://minbarai.com/dashboard', 'Go to Dashboard', '#10B981')}
+
+      <p style="color: ${COLOR_NEUTRAL_400}; font-size: 13px; text-align: center; margin-top: 32px;">
+        Questions? Contact
+        <a href="mailto:support@minbarai.com" style="color: ${COLOR_ACCENT}; text-decoration: none;">support@minbarai.com</a>
+      </p>
+    </div>
+    ${footer()}
+  `)
 }
