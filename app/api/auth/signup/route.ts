@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { checkRateLimit, RATE_LIMIT_CONFIGS } from '@/lib/auth/rate-limiting'
 import { sanitizeEmail, validateEmailStrict } from '@/lib/auth/email-validation'
 import { validatePassword } from '@/lib/auth/password-strength'
+import { getURL } from '@/lib/stripe/config'
 import { cookies } from 'next/headers'
 
 // Force dynamic rendering for this route
@@ -141,7 +142,8 @@ export async function POST(request: NextRequest) {
 
     // Always use the configured site URL — never trust the Origin header from the request
     // as it is user-controlled and could be used for open-redirect phishing.
-    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/subscribe&action=signup`
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || getURL()).replace(/\/$/, '')
+    const redirectTo = `${siteUrl}/auth/callback?next=/subscribe&action=signup`
 
     // Attempt sign-up
     const { data, error } = await supabase.auth.signUp({
