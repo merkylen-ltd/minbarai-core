@@ -620,19 +620,19 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
       }
     }
 
-    // Handle subscription period end
-    let subscriptionPeriodEnd: string | null = null
-    if (subscription.current_period_end) {
-      subscriptionPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString()
-    }
+    // Always write subscription_period_end — even if null — so the DB reflects
+    // what Stripe says rather than whatever was there before. Using a falsy guard
+    // could leave a future period_end in the DB, accidentally granting access
+    // after an immediate cancellation.
+    const subscriptionPeriodEnd: string | null =
+      subscription.current_period_end != null
+        ? new Date(subscription.current_period_end * 1000).toISOString()
+        : null
 
     const updateData: UserSubscriptionUpdate = {
       subscription_status: 'canceled',
+      subscription_period_end: subscriptionPeriodEnd,
       updated_at: new Date().toISOString(),
-    }
-    
-    if (subscriptionPeriodEnd) {
-      updateData.subscription_period_end = subscriptionPeriodEnd
     }
 
     const supabaseAdmin = getSupabaseAdmin()
