@@ -19,7 +19,9 @@ function getIp(request: Request | NextRequest): string {
   const realIp = request.headers.get('x-real-ip')
   const cfConnectingIp = request.headers.get('cf-connecting-ip')
 
-  if (forwardedFor) return forwardedFor.split(',')[0].trim()
+  // Use the LAST value — Google Cloud Run's LB appends the real client IP.
+  // Taking [0] is client-controlled and can be spoofed to bypass rate limiting.
+  if (forwardedFor) return forwardedFor.split(',').at(-1)!.trim()
   if (realIp) return realIp
   if (cfConnectingIp) return cfConnectingIp
   return (request as NextRequest).ip ?? 'unknown'

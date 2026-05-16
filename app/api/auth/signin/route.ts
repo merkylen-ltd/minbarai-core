@@ -176,7 +176,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           error: errorMessage,
-          details: error.message,
           remainingAttempts: lockoutResult.remainingAttempts,
           lockoutUntil: lockoutResult.lockoutUntil,
           retryAfter: lockoutResult.retryAfter
@@ -222,7 +221,7 @@ export async function POST(request: NextRequest) {
     authLogger.authSuccess(data.user.id, data.user.email || sanitizedEmail, 'password')
 
     // Clear any failed attempts for this account
-    clearFailedAttempts(sanitizedEmail)
+    await clearFailedAttempts(sanitizedEmail)
 
     return NextResponse.json(
       {
