@@ -605,7 +605,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
         const { data: userData, error: userError } = await supabaseAdmin
           .from('users')
           .select('id')
-          .eq('email', customer.email)
+          .eq('email', customer.email.toLowerCase())
           .single()
         
         if (userError || !userData) {
@@ -926,12 +926,18 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
     // 3. Extract activation parameters — Stripe metadata is primary source,
     //    DB record is the fallback (metadata can be absent if invoice was created
     //    outside the normal flow or metadata was stripped by Stripe).
+    const parsedDurationDays = parseInt(invoice.metadata?.duration_days || '', 10)
     const durationDays =
-      parseInt(invoice.metadata?.duration_days || '0', 10) || adminInvoice.duration_days
+      Number.isFinite(parsedDurationDays) && parsedDurationDays > 0
+        ? parsedDurationDays
+        : adminInvoice.duration_days
+    const parsedSessionLimit = parseInt(invoice.metadata?.session_limit_minutes || '', 10)
     const sessionLimitMinutes =
-      parseInt(invoice.metadata?.session_limit_minutes || '0', 10) || adminInvoice.session_limit_minutes
+      Number.isFinite(parsedSessionLimit) && parsedSessionLimit > 0
+        ? parsedSessionLimit
+        : adminInvoice.session_limit_minutes
 
-    if (!durationDays || !sessionLimitMinutes) {
+    if (isNaN(durationDays) || durationDays <= 0 || isNaN(sessionLimitMinutes) || sessionLimitMinutes <= 0) {
       throw new Error(`Missing duration_days or session_limit_minutes for admin invoice ${adminInvoiceId}`)
     }
 
