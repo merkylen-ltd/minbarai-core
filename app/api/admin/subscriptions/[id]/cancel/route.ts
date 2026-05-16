@@ -64,7 +64,7 @@ export async function POST(
 
     // Update database
     const updateData: any = {
-      subscription_status: cancelImmediately ? 'canceled' : 'canceled',
+      subscription_status: cancelImmediately ? 'canceled' : 'active',
       updated_at: new Date().toISOString(),
     }
 

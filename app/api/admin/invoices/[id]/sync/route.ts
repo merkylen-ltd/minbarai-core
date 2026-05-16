@@ -21,16 +21,14 @@ import {
   activateSingleUserForInvoice,
 } from '@/lib/admin/activate-invoice'
 import { logNotification } from '@/lib/admin/notifications'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
-})
+import { getStripe } from '@/lib/stripe/config'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
+    const stripe = getStripe()
     const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const { data: { user } } = await supabase.auth.getUser()
@@ -107,7 +105,7 @@ export async function POST(
       10,
     )
 
-    if (!durationDays || !sessionLimitMinutes) {
+    if (isNaN(durationDays) || durationDays <= 0 || isNaN(sessionLimitMinutes) || sessionLimitMinutes <= 0) {
       return NextResponse.json(
         { error: 'Invoice missing duration/session_limit metadata — cannot activate' },
         { status: 422 },
