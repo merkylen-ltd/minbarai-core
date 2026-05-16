@@ -139,9 +139,9 @@ export async function POST(request: NextRequest) {
     
     // Note: PGRST116 means "no rows returned" which is expected for new users
 
-    // Get the origin for redirect URL
-    const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL
-    const redirectTo = `${origin}/auth/callback?next=/subscribe&action=signup`
+    // Always use the configured site URL — never trust the Origin header from the request
+    // as it is user-controlled and could be used for open-redirect phishing.
+    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/subscribe&action=signup`
 
     // Attempt sign-up
     const { data, error } = await supabase.auth.signUp({
