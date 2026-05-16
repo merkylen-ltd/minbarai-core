@@ -55,6 +55,11 @@ export async function POST(request: NextRequest) {
       .eq('email', email.toLowerCase())
       .single()
 
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[Admin API] Error checking existing account:', checkError)
+      return NextResponse.json({ error: 'Database error checking account' }, { status: 500 })
+    }
+
     if (existingUser) {
       // Account exists - return 409 to indicate it exists but allow invoice creation
       return NextResponse.json(
