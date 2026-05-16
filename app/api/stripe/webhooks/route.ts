@@ -505,6 +505,19 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
 
     const supabaseAdmin = getSupabaseAdmin()
+
+    // Verify the user row exists before updating — the auth trigger that creates
+    // public.users may not have fired yet. If missing, throw so Stripe retries.
+    const { data: existingUser, error: lookupError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', user_id)
+      .single()
+
+    if (lookupError || !existingUser) {
+      throw new Error(`User ${user_id} not found in public.users — will retry`)
+    }
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({
@@ -558,15 +571,32 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription) {
     const supabaseAdmin = getSupabaseAdmin()
     const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
 
+    const stripePeriodEnd = subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000).toISOString()
+      : null
+
+    // Read the current DB period_end before writing. Admin invoice activations can
+    // extend subscription_period_end beyond what Stripe knows about. Never overwrite
+    // a later period_end with an earlier one — that would silently revoke paid access.
+    const { data: currentUser } = await supabaseAdmin
+      .from('users')
+      .select('subscription_period_end')
+      .eq('id', supabaseUserId)
+      .single()
+
+    const currentPeriodEnd = currentUser?.subscription_period_end
+    const newPeriodEnd =
+      currentPeriodEnd && stripePeriodEnd && currentPeriodEnd > stripePeriodEnd
+        ? currentPeriodEnd
+        : stripePeriodEnd
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({
         subscription_id: subscription.id,
         subscription_status: dbStatus,
         customer_id: customer.id,
-        subscription_period_end: subscription.current_period_end
-          ? new Date(subscription.current_period_end * 1000).toISOString()
-          : null,
+        subscription_period_end: newPeriodEnd,
         updated_at: new Date().toISOString(),
       })
       .eq('id', supabaseUserId)
