@@ -50,7 +50,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     sourceScrollRef,
     onInterimText: liveCaptioning.setInterimText,
     onFinalText: (text: string) => {
-      liveCaptioning.setSourceText(prev => prev + ' ' + text)
+      liveCaptioning.setSourceText(prev => prev + (prev ? '\n' : '') + text)
       typingAnimation.scrollToBottom(sourceScrollRef)
     },
     onTranslation: (translation: string) => {
@@ -66,32 +66,45 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
   // Monitor usage status and auto-stop if session becomes inactive during recording
   // Use ref to track if we've already auto-stopped to prevent duplicate stops
   const hasAutoStoppedRef = React.useRef(false)
-  
+  // Track previous status to detect mid-session transitions vs. pre-existing closed state
+  const prevUsageStatusRef = React.useRef<string | null>(null)
+
   useEffect(() => {
     // Don't process if not recording
     if (!speechRecognition.isRecording) {
-      // Reset flag when not recording so we can auto-stop next session
+      // Reset flags when not recording so we can auto-stop next session
       hasAutoStoppedRef.current = false
+      prevUsageStatusRef.current = null
       return
     }
-    
-    // Stop recording if session expires, gets capped, or is closed unexpectedly
-    const shouldAutoStop = ['expired', 'capped', 'closed'].includes(liveCaptioning.usageStatus || '')
-    
+
+    const currentStatus = liveCaptioning.usageStatus || ''
+
+    // 'closed' fires when the user intentionally stops recording (normal flow).
+    // Only treat it as an unexpected termination if we transitioned INTO 'closed'
+    // from a non-closed state during an active recording — not if the status was
+    // already 'closed' before/at the moment recording started.
+    const wasAlreadyClosed = prevUsageStatusRef.current === null || prevUsageStatusRef.current === 'closed'
+    prevUsageStatusRef.current = currentStatus
+
+    const shouldAutoStop =
+      ['expired', 'capped'].includes(currentStatus) ||
+      (currentStatus === 'closed' && !wasAlreadyClosed)
+
     if (shouldAutoStop && !hasAutoStoppedRef.current) {
       hasAutoStoppedRef.current = true // Set flag before stopping to prevent duplicates
-      
+
       speechRecognition.stopRecording()
-      
+
       let message = 'Session has been stopped.'
-      if (liveCaptioning.usageStatus === 'expired') {
+      if (currentStatus === 'expired') {
         message = 'Your session has expired due to inactivity. Please start a new session to continue.'
-      } else if (liveCaptioning.usageStatus === 'capped') {
+      } else if (currentStatus === 'capped') {
         message = 'Your session has reached the maximum duration limit. Please start a new session to continue.'
-      } else if (liveCaptioning.usageStatus === 'closed') {
+      } else if (currentStatus === 'closed') {
         message = 'Your session has been closed. Please start a new session to continue.'
       }
-      
+
       liveCaptioning.showAlert('Session Stopped', message, { variant: 'warning', buttonText: 'OK' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,7 +208,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
     return (
       <div className="space-y-6">
         {/* Control Panel Skeleton */}
-        <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4 space-y-4 animate-pulse">
+        <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4 space-y-4 animate-pulse">
           <div className="h-12 bg-primary-700/30 rounded"></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="h-10 bg-primary-700/30 rounded"></div>
@@ -209,7 +222,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
 
         {/* Transcription Area Skeleton */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4 space-y-3 animate-pulse">
+          <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4 space-y-3 animate-pulse">
             <div className="h-6 bg-primary-700/30 rounded w-24"></div>
             <div className="space-y-2">
               <div className="h-4 bg-primary-700/30 rounded w-full"></div>
@@ -217,7 +230,7 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
               <div className="h-4 bg-primary-700/30 rounded w-4/6"></div>
             </div>
           </div>
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4 space-y-3 animate-pulse">
+          <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4 space-y-3 animate-pulse">
             <div className="h-6 bg-primary-700/30 rounded w-32"></div>
             <div className="space-y-2">
               <div className="h-4 bg-primary-700/30 rounded w-full"></div>
@@ -289,18 +302,18 @@ function LiveCaptioningInternal({ userId }: LiveCaptioningProps) {
       />
 
       {/* Keyboard Shortcuts Help */}
-      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4">
+      <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4">
         <div className="flex flex-wrap gap-x-4 gap-y-2 items-start lg:items-center lg:justify-between">
           <div className="text-sm text-neutral-400">
-            <span className="font-heading text-white">Keyboard Shortcuts:</span>
+            <span className="font-heading text-neutral-0">Keyboard Shortcuts:</span>
             <span className="ml-4">
-              <kbd className="px-2 py-1 bg-white/10 border border-white/20 rounded text-xs">H</kbd> Toggle source panel
+              <kbd className="px-2 py-1 bg-primary-700/50 border border-accent-500/20 rounded text-xs">H</kbd> Toggle source panel
             </span>
             <span className="ml-4">
-              <kbd className="px-2 py-1 bg-white/10 border border-white/20 rounded text-xs">F</kbd> Fullscreen
+              <kbd className="px-2 py-1 bg-primary-700/50 border border-accent-500/20 rounded text-xs">F</kbd> Fullscreen
             </span>
             <span className="ml-4">
-              <kbd className="px-2 py-1 bg-white/10 border border-white/20 rounded text-xs">Space</kbd> Start/Stop recording
+              <kbd className="px-2 py-1 bg-primary-700/50 border border-accent-500/20 rounded text-xs">Space</kbd> Start/Stop recording
             </span>
           </div>
           {!liveCaptioning.showSourcePanel && (
