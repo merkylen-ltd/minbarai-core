@@ -71,13 +71,11 @@ export function useUsageSession(): UsageSessionReturn {
       setSessionExpiresAt(event.expiresAt)
       setSessionCapAt(event.capAt)
       
-      // Clear error unless we hit a limit
-      const eventIsCapped = (event.status as string) === 'capped'
-      if (!eventIsCapped && event.timeRemainingSeconds > 0) {
-        setError(null)
-      } else if (eventIsCapped || event.timeRemainingSeconds <= 0) {
-        // User has reached their limit
+      // Only show the limit-reached error when there's genuinely no time left
+      if (event.timeRemainingSeconds <= 0) {
         setError('Session limit reached. No remaining time available.')
+      } else {
+        setError(null)
       }
     } else if (event.type === 'session:closed') {
       setSessionId(null)
@@ -154,8 +152,15 @@ export function useUsageSession(): UsageSessionReturn {
             connectSSE()
           }, delay)
         } else {
-          console.error('[useUsageSession] Max reconnection attempts reached')
-          setError('Connection lost. Please refresh the page.')
+          // Reset the counter and schedule a slow-retry in 30s rather than giving up
+          // permanently. The user may have lost connectivity briefly; we should
+          // recover automatically when it comes back rather than leaving the UI
+          // in a permanently stale state.
+          reconnectAttemptsRef.current = 0
+          console.warn('[useUsageSession] Max reconnection attempts reached, retrying in 30s')
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connectSSE()
+          }, 30000)
         }
       }
     } catch (err) {
@@ -227,7 +232,10 @@ export function useUsageSession(): UsageSessionReturn {
       // The SSE stream will receive a database change event and update our state
       console.log('[useUsageSession] Session start requested, waiting for SSE update')
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      const rawMessage = err instanceof Error ? err.message : 'Unknown error'
+      const errorMessage = rawMessage === 'Failed to fetch'
+        ? 'Network error. Please check your connection and try again.'
+        : rawMessage
       console.error('[useUsageSession] Error starting session:', err)
       setError(errorMessage)
       setStatus('idle')
@@ -349,27 +357,48 @@ export function useUsageSession(): UsageSessionReturn {
     }
   }, [isActive])
 
+  /**
+   * Client-side countdown — ticks every second while a session is active.
+   * SSE updates every 10 s are authoritative and will overwrite these values,
+   * so the countdown can never drift by more than ~10 s. Without this, the
+   * displayed time jumps in 10-second chunks instead of counting down smoothly.
+   * Depend only on isActive so the interval is created/destroyed once per
+   * active→idle transition, not re-created on every tick.
+   */
+  useEffect(() => {
+    if (!isActive) return
+
+    const ticker = setInterval(() => {
+      setTimeRemainingSeconds(prev => Math.max(0, prev - 1))
+      setCurrentSessionSeconds(prev => prev + 1)
+    }, 1000)
+
+    return () => clearInterval(ticker)
+  }, [isActive])
+
   // Computed values
   const timeRemainingMinutes = Math.floor(timeRemainingSeconds / 60)
   const totalUsageMinutes = Math.floor(totalUsageSeconds / 60)
-  
+
   // Check if user has reached their session limit
   const isCapped = (status as string) === 'capped'
-  const hasReachedLimit = timeRemainingSeconds <= 0 || isCapped
-  
+  const hasReachedLimit = timeRemainingSeconds <= 0
+
   // Valid for starting a NEW recording if:
   // 1. Not currently active (prevents double-start)
-  // 2. Has time remaining (not at 0 or capped)
-  // 3. Status allows recording (idle, closed normally, or expired with time left)
-  const recordingAllowedStatuses: SessionStatus[] = ['idle', 'closed', 'expired']
-  const isValidForRecording = !isActive && 
-                               !hasReachedLimit && 
+  // 2. Has time remaining (not at 0)
+  // 3. Status allows recording (idle, closed, expired, or capped-with-time-remaining)
+  const recordingAllowedStatuses: SessionStatus[] = ['idle', 'closed', 'expired', 'capped']
+  const isValidForRecording = !isActive &&
+                               !hasReachedLimit &&
                                timeRemainingSeconds > 0 &&
                                recordingAllowedStatuses.includes(status)
-  
-  // Valid for translation (subscription is valid and has time) - regardless of recording state
-  // This is used to show subscription validity in UI
-  const isValidForTranslation = !hasReachedLimit && timeRemainingSeconds > 0
+
+  // Valid for translation — subscription is valid and has time.
+  // During initial SSE loading (isLoading=true), allow through: we haven't received
+  // the server's authoritative time yet, so blocking here gives a false "expired"
+  // error to valid users who start recording immediately after page load.
+  const isValidForTranslation = isLoading || (!hasReachedLimit && timeRemainingSeconds > 0)
   
   const isNearLimit = timeRemainingSeconds > 0 && timeRemainingSeconds <= 1800 // 30 minutes
 

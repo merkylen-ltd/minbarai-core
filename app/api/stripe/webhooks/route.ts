@@ -29,7 +29,7 @@ interface WebhookEventStatusUpdate {
 interface UserSubscriptionUpdate {
   subscription_status: string
   updated_at: string
-  subscription_period_end?: string
+  subscription_period_end?: string | null
 }
 
 // Lazy initialization of Supabase client to avoid build-time errors

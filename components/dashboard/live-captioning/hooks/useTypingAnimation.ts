@@ -47,11 +47,11 @@ export const useTypingAnimation = (
       // Long text: Faster typing (15ms per char)
       return 15
     } else if (textLength < 600) {
-      // Very long text: Fast typing (8ms per char)
-      return 8
+      // Very long text: Fast typing (16ms per char — one frame)
+      return 16
     } else {
-      // Extremely long text: Very fast typing (5ms per char)
-      return 5
+      // Extremely long text: Very fast typing (16ms per char — one frame minimum)
+      return 16
     }
   }, [])
 
@@ -67,7 +67,6 @@ export const useTypingAnimation = (
       
       // Calculate adaptive speed based on text length
       const adaptiveSpeed = calculateTypingSpeed(fullText.length)
-      console.log(`[TypingAnimation] Text length: ${fullText.length} chars, Speed: ${adaptiveSpeed}ms/char`)
       
       typingIntervalRef.current = setInterval(() => {
         if (currentIndex < fullText.length) {
@@ -124,11 +123,9 @@ export const useTypingAnimation = (
     if (isTypingRef.current) {
       // Currently typing - add to queue
       typingQueueRef.current.push(translation)
-      console.log('[TypingAnimation] Queued translation (queue size:', typingQueueRef.current.length, ')')
     } else {
       // Not typing - start immediately
       setPendingTranslation(translation)
-      console.log('[TypingAnimation] Starting immediate translation')
     }
   }, []) // No dependencies - uses ref which is always current
 
@@ -147,7 +144,6 @@ export const useTypingAnimation = (
 
   // Clear only the pending queue and stop current typing, keep completed translations
   const clearPendingQueue = useCallback(() => {
-    console.log('[TypingAnimation] Clearing pending queue and stopping current typing')
     setTypingText('')
     setIsTyping(false)
     isTypingRef.current = false
