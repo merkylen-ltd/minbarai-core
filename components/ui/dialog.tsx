@@ -47,7 +47,7 @@ const DialogContent = React.forwardRef<
       className={cn(
         "fixed z-[9999] grid w-full max-w-lg gap-4 border bg-card p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         // Custom styling to match website theme
-        "bg-white/10 backdrop-blur-md border-white/20 rounded-xl shadow-2xl",
+        "bg-primary-800/90 backdrop-blur-md border-accent-500/20 rounded-xl shadow-2xl",
         // Ensure proper positioning and centering
         "mx-4 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar",
         // Better centering with flexbox approach
@@ -58,7 +58,7 @@ const DialogContent = React.forwardRef<
     >
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-        <X className="h-4 w-4 text-white/70 hover:text-white" />
+        <X className="h-4 w-4 text-neutral-300 hover:text-neutral-0" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
@@ -101,7 +101,7 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-heading leading-none tracking-tight text-white",
+      "text-lg font-heading leading-none tracking-tight text-neutral-0",
       className
     )}
     {...props}
@@ -211,7 +211,7 @@ const ConfirmationDialog = React.forwardRef<
           <button
             onClick={handleCancel}
             disabled={loading}
-            className="flex-1 sm:flex-none px-4 py-2 text-sm font-body text-neutral-400 hover:text-white border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 sm:flex-none px-4 py-2 text-sm font-body text-neutral-400 hover:text-neutral-0 border border-accent-500/20 hover:border-accent-500/40 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {cancelText}
           </button>
@@ -340,7 +340,7 @@ const SupportContactDialog = React.forwardRef<
   ...props
 }, ref) => {
   const handleEmailClick = () => {
-    window.location.href = 'mailto:support@minberai.com'
+    window.location.href = 'mailto:support@minbarai.com'
   }
 
   const handlePhoneClick = () => {
@@ -374,7 +374,7 @@ const SupportContactDialog = React.forwardRef<
                   onClick={handleEmailClick}
                   className="text-sm text-blue-400 hover:text-blue-300 underline transition-colors"
                 >
-                  support@minberai.com
+                  support@minbarai.com
                 </button>
               </div>
             </div>

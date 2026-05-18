@@ -31,15 +31,15 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   },
   suspended: {
     label: 'Suspended',
-    color: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+    color: 'bg-neutral-500/10 text-neutral-400 border-neutral-500/20',
   },
   expired: {
     label: 'Expired',
-    color: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+    color: 'bg-neutral-500/10 text-neutral-400 border-neutral-500/20',
   },
   closed: {
     label: 'Closed',
-    color: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+    color: 'bg-neutral-500/10 text-neutral-400 border-neutral-500/20',
   },
   capped: {
     label: 'Capped',
