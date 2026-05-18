@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { adminWelcomeNewUserEmail } from '@/lib/email/templates/admin-welcome-new-user'
 import { adminInvoiceNotificationEmail } from '@/lib/email/templates/admin-invoice-notification'
+import { generateSecurePassword } from '@/lib/auth/password-strength'
 
 // Lazy init — the Resend SDK constructor throws if the key is missing/empty.
 // Module-level `new Resend(...)` breaks `next build` when env vars aren't
@@ -33,39 +34,11 @@ export interface AccountCreationResult {
 }
 
 /**
- * Generate a cryptographically secure random password
- * Format: Uppercase + lowercase + number + special char + random mix
- */
-export function generateTemporaryPassword(): string {
-  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  const lowercase = 'abcdefghijklmnopqrstuvwxyz'
-  const numbers = '0123456789'
-  const special = '!@#$%^&*'
-
-  let password = ''
-
-  // Ensure at least one from each category
-  password += uppercase[Math.floor(Math.random() * uppercase.length)]
-  password += lowercase[Math.floor(Math.random() * lowercase.length)]
-  password += numbers[Math.floor(Math.random() * numbers.length)]
-  password += special[Math.floor(Math.random() * special.length)]
-
-  // Fill rest with random mix
-  const all = uppercase + lowercase + numbers + special
-  for (let i = password.length; i < 12; i++) {
-    password += all[Math.floor(Math.random() * all.length)]
-  }
-
-  // Shuffle password
-  return password.split('').sort(() => Math.random() - 0.5).join('')
-}
-
-/**
  * Create a new user account via Supabase Auth + Users table
  */
 export async function createAdminAccount(params: CreateAccountParams): Promise<AccountCreationResult> {
   const adminClient = createAdminClient()
-  const tempPassword = generateTemporaryPassword()
+  const tempPassword = generateSecurePassword()
 
   try {
     // Create auth user with temporary password
@@ -76,7 +49,6 @@ export async function createAdminAccount(params: CreateAccountParams): Promise<A
       user_metadata: {
         created_via: 'admin_invoice',
         created_at: new Date().toISOString(),
-        temporary_password: tempPassword, // Store temporarily for welcome email
       },
     })
 
