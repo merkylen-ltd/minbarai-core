@@ -34,6 +34,7 @@ jest.mock('next/headers', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { NextRequest } from 'next/server'
 import { POST as createUserRoute } from '@/app/api/admin/users/route'
 import { POST as resetUsageRoute } from '@/app/api/admin/users/[id]/reset-usage/route'
 import { PATCH as updateSessionLimitRoute } from '@/app/api/admin/users/[id]/session-limit/route'
@@ -106,7 +107,7 @@ describe('Marketing Tools APIs', () => {
       })
 
       // Create request
-      const request = new Request('http://localhost/api/admin/users', {
+      const request = new NextRequest('http://localhost/api/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           email: 'demo@minbarai.com',
@@ -152,7 +153,7 @@ describe('Marketing Tools APIs', () => {
         upsert: jest.fn().mockResolvedValue({ error: null }),
       })
 
-      const request = new Request('http://localhost/api/admin/users', {
+      const request = new NextRequest('http://localhost/api/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           email: 'premium-demo@minbarai.com',
@@ -178,7 +179,7 @@ describe('Marketing Tools APIs', () => {
         data: { user: { email: 'admin@example.com' } },
       })
 
-      const request = new Request('http://localhost/api/admin/users', {
+      const request = new NextRequest('http://localhost/api/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           email: 'invalid-email',
@@ -195,7 +196,7 @@ describe('Marketing Tools APIs', () => {
         data: { user: { email: 'admin@example.com' } },
       })
 
-      const request = new Request('http://localhost/api/admin/users', {
+      const request = new NextRequest('http://localhost/api/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           email: 'demo@minbarai.com',
@@ -217,7 +218,7 @@ describe('Marketing Tools APIs', () => {
         throw error
       })
 
-      const request = new Request('http://localhost/api/admin/users', {
+      const request = new NextRequest('http://localhost/api/admin/users', {
         method: 'POST',
         body: JSON.stringify({
           email: 'demo@minbarai.com',
@@ -256,7 +257,7 @@ describe('Marketing Tools APIs', () => {
       })
       mockAdminClient.from.mockReturnValueOnce(deleteMock)
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/users/test-user-id/reset-usage',
         { method: 'POST' }
       )
@@ -283,7 +284,7 @@ describe('Marketing Tools APIs', () => {
       })
       mockAdminClient.from.mockReturnValue(userMock)
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/users/nonexistent/reset-usage',
         { method: 'POST' }
       )
@@ -319,7 +320,7 @@ describe('Marketing Tools APIs', () => {
       updateMock.eq.mockResolvedValue({ error: null })
       mockAdminClient.from.mockReturnValueOnce(updateMock)
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/users/test-user-id/session-limit',
         {
           method: 'PATCH',
@@ -342,7 +343,7 @@ describe('Marketing Tools APIs', () => {
         data: { user: { email: 'admin@example.com' } },
       })
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/users/test-user-id/session-limit',
         {
           method: 'PATCH',
@@ -362,7 +363,7 @@ describe('Marketing Tools APIs', () => {
         data: { user: { email: 'admin@example.com' } },
       })
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/users/test-user-id/session-limit',
         {
           method: 'PATCH',
@@ -416,7 +417,7 @@ describe('Marketing Tools APIs', () => {
         single: jest.fn(),
       }))
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/marketing/bulk-seed',
         {
           method: 'POST',
@@ -445,7 +446,7 @@ describe('Marketing Tools APIs', () => {
         data: { user: { email: 'admin@example.com' } },
       })
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/marketing/bulk-seed',
         {
           method: 'POST',
@@ -491,7 +492,7 @@ describe('Marketing Tools APIs', () => {
         single: jest.fn(),
       }))
 
-      const request = new Request(
+      const request = new NextRequest(
         'http://localhost/api/admin/marketing/bulk-seed',
         {
           method: 'POST',
