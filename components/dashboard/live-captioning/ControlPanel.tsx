@@ -87,11 +87,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   hasContent
 }) => {
   return (
-    <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-4">
+    <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-4">
       {/* Header Section */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-4">
-          <h2 className="text-lg font-heading text-white">Control Panel</h2>
+          <h2 className="text-lg font-heading text-neutral-0">Control Panel</h2>
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${
               status.connected ? 'bg-green-400' : 'bg-red-400'
@@ -110,7 +110,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <div className="flex items-center space-x-3">
               <div className="bg-primary-700/30 border border-accent-500/20 rounded-lg px-3 py-1.5">
                 <div className="text-sm text-neutral-300">
-                  <span className="font-heading text-white">
+                  <span className="font-heading text-neutral-0">
                     {sessionTimeRemaining <= 0 ? '0h 0m' : `${Math.floor(sessionTimeRemaining / 60)}h ${sessionTimeRemaining % 60}m`}
                   </span>
                   <span className="ml-1">remaining</span>
@@ -224,7 +224,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* 4. Clear Button */}
         <button
           onClick={onClear}
-          className="inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50"
+          className="inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 bg-primary-700/40 text-neutral-200 border border-accent-500/20 hover:bg-primary-700/60 hover:border-accent-500/40 focus:ring-accent-500/50"
           title="Clear all transcription text (C)"
           aria-label="Clear all transcription text"
         >
@@ -237,7 +237,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           className={`inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
             showSourcePanel
               ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500'
-              : 'bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50'
+              : 'bg-primary-700/40 text-neutral-200 border border-accent-500/20 hover:bg-primary-700/60 hover:border-accent-500/40 focus:ring-accent-500/50'
           }`}
           title={`${showSourcePanel ? 'Hide source panel (H)' : 'Show source panel (H)'}`}
           aria-label={`${showSourcePanel ? 'Hide source panel' : 'Show source panel'}`}
@@ -255,9 +255,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               max="120"
               value={textSize}
               onChange={(e) => onTextSizeChange(Number(e.target.value))}
-              className="w-10 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer slider-thumb flex-1"
+              className="w-10 h-1.5 rounded-lg appearance-none cursor-pointer slider-thumb flex-1"
               style={{
-                background: `linear-gradient(to right, #55a39a 0%, #55a39a ${((textSize - 12) / (120 - 12)) * 100}%, rgba(255,255,255,0.2) ${((textSize - 12) / (120 - 12)) * 100}%, rgba(255,255,255,0.2) 100%)`
+                background: `linear-gradient(to right, #55a39a 0%, #55a39a ${((textSize - 12) / (120 - 12)) * 100}%, rgba(42,64,71,0.6) ${((textSize - 12) / (120 - 12)) * 100}%, rgba(42,64,71,0.6) 100%)`
               }}
             />
             <span className="text-xs text-neutral-400 font-display">A</span>
@@ -271,7 +271,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           className={`inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
             isFullscreen
               ? 'bg-accent-500/20 text-accent-400 border border-accent-500/30 hover:bg-accent-500/30 focus:ring-accent-500'
-              : 'bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50'
+              : 'bg-primary-700/40 text-neutral-200 border border-accent-500/20 hover:bg-primary-700/60 hover:border-accent-500/40 focus:ring-accent-500/50'
           }`}
           title={`${isFullscreen ? 'Exit fullscreen mode (F)' : 'Enter fullscreen mode (F)'}`}
           aria-label={`${isFullscreen ? 'Exit fullscreen mode' : 'Enter fullscreen mode'}`}
@@ -282,7 +282,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* 8. Download Button */}
         <button
           onClick={onDownload}
-          className="inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 focus:ring-white/50"
+          className="inline-flex items-center justify-center w-10 h-10 text-sm font-body rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed bg-primary-700/40 text-neutral-200 border border-accent-500/20 hover:bg-primary-700/60 hover:border-accent-500/40 focus:ring-accent-500/50"
           disabled={!hasContent}
           title={hasContent ? "Download transcript as text file" : "No content to download"}
           aria-label="Download transcript as text file"

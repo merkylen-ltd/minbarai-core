@@ -38,13 +38,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (body.maxRedemptions !== undefined && body.maxRedemptions !== null) {
+      if (!Number.isInteger(body.maxRedemptions) || body.maxRedemptions <= 0) {
+        return NextResponse.json(
+          { error: 'maxRedemptions must be a positive integer' },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (body.expiresAt) {
+      const expiryDate = new Date(body.expiresAt)
+      if (isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
+        return NextResponse.json(
+          { error: 'expiresAt must be a valid date in the future' },
+          { status: 400 }
+        )
+      }
+    }
+
     const adminClient = createAdminClient()
 
-    const { data: existing } = await adminClient
+    const { data: existing, error: checkError } = await adminClient
       .from('promo_codes')
       .select('id')
       .eq('code', body.code.toUpperCase())
       .single()
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('Error checking promo code uniqueness:', checkError)
+      return NextResponse.json({ error: 'Database error checking promo code' }, { status: 500 })
+    }
 
     if (existing) {
       return NextResponse.json(
@@ -78,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     const couponParams: Stripe.CouponCreateParams = {
       name: body.code.toUpperCase(),
-      ...(body.maxRedemptions && { max_redemptions: body.maxRedemptions }),
+      ...(body.maxRedemptions != null && { max_redemptions: body.maxRedemptions }),
     }
 
     if (amountOffCents !== null && currency) {
@@ -94,7 +118,7 @@ export async function POST(request: NextRequest) {
       coupon: stripeCoupon.id,
       code: body.code.toUpperCase(),
       active: true,
-      max_redemptions: body.maxRedemptions || undefined,
+      max_redemptions: body.maxRedemptions ?? undefined,
       expires_at: body.expiresAt ? Math.floor(new Date(body.expiresAt).getTime() / 1000) : undefined,
     })
 
@@ -107,7 +131,7 @@ export async function POST(request: NextRequest) {
         currency: currency,
         stripe_coupon_id: stripeCoupon.id,
         stripe_promotion_code_id: stripePromotionCode.id,
-        max_redemptions: body.maxRedemptions || null,
+        max_redemptions: body.maxRedemptions ?? null,
         created_by_email: user.email || '',
         expires_at: body.expiresAt ? new Date(body.expiresAt).toISOString() : null,
       })

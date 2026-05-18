@@ -25,7 +25,7 @@ export default function SuspendedPage() {
 
           <div className="space-y-4">
             <Button asChild className="w-full">
-              <a href="mailto:support@minberai.com">
+              <a href="mailto:support@minbarai.com">
                 Contact Support
               </a>
             </Button>

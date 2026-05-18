@@ -329,14 +329,6 @@ function SignUpForm() {
       const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
       const redirectTo = `${baseUrl}/auth/callback?next=/subscribe&action=signup`
       
-      console.log('Environment check:', {
-        NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
-        windowOrigin: window.location.origin,
-        isProduction,
-        finalBaseUrl: baseUrl,
-        redirectTo
-      })
-      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {

@@ -15,14 +15,12 @@ function SuccessPageContent() {
   const [userEmail, setUserEmail] = useState<string>('')
   const maxRetries = 10
 
-  console.log('Success page loaded')
-
   useEffect(() => {
     const checkSubscriptionStatus = async () => {
       try {
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
-        
+
         if (!user) {
           setStatus('error')
           setMessage('Authentication error. Please sign in again.')
@@ -31,47 +29,22 @@ function SuccessPageContent() {
 
         setUserEmail(user.email || '')
 
-        console.log(`Checking subscription status for user ${user.id}, attempt ${retryCount + 1}`)
-
         const { data: userData, error } = await supabase
           .from('users')
           .select('subscription_status, subscription_id, customer_id')
           .eq('id', user.id)
           .single()
 
-        if (error) {
-          console.error('Error fetching user data:', error)
+        if (error || !userData) {
           if (retryCount < maxRetries) {
-            setRetryCount(prev => prev + 1)
-            setMessage(`Error checking status, retrying... (${retryCount + 1}/${maxRetries})`)
-            setTimeout(() => {
-              checkSubscriptionStatus()
-            }, 2000)
+            setMessage(`Checking payment status... (${retryCount + 1}/${maxRetries})`)
+            setTimeout(() => setRetryCount(prev => prev + 1), 2000)
             return
           }
           setStatus('error')
           setMessage('Error checking subscription status.')
           return
         }
-
-        if (!userData) {
-          console.log('User data not found, retrying...')
-          if (retryCount < maxRetries) {
-            setRetryCount(prev => prev + 1)
-            setMessage(`User data not found, retrying... (${retryCount + 1}/${maxRetries})`)
-            setTimeout(() => {
-              checkSubscriptionStatus()
-            }, 2000)
-            return
-          }
-          setStatus('error')
-          setMessage('User data not found.')
-          return
-        }
-
-        console.log('Current subscription status:', userData.subscription_status)
-        console.log('Subscription ID:', userData.subscription_id)
-        console.log('Customer ID:', userData.customer_id)
 
         if (isValidSubscriptionStatus(userData.subscription_status)) {
           setStatus('success')
@@ -82,20 +55,10 @@ function SuccessPageContent() {
           } else {
             setMessage('Payment successful! Redirecting to dashboard...')
           }
-          
-          // Redirect to dashboard after a short delay
-          setTimeout(() => {
-            console.log('Redirecting to dashboard...')
-            router.push('/dashboard')
-          }, 2000)
+          setTimeout(() => router.push('/dashboard'), 2000)
         } else if (retryCount < maxRetries) {
-          // Still processing, retry after a delay
-          setRetryCount(prev => prev + 1)
           setMessage(`Payment processing... (${retryCount + 1}/${maxRetries})`)
-          
-          setTimeout(() => {
-            checkSubscriptionStatus()
-          }, 2000)
+          setTimeout(() => setRetryCount(prev => prev + 1), 2000)
         } else {
           setStatus('error')
           setMessage('Payment processing is taking longer than expected. Please check your subscription status or contact support.')
@@ -103,11 +66,8 @@ function SuccessPageContent() {
       } catch (error) {
         console.error('Error checking subscription:', error)
         if (retryCount < maxRetries) {
-          setRetryCount(prev => prev + 1)
           setMessage(`Error occurred, retrying... (${retryCount + 1}/${maxRetries})`)
-          setTimeout(() => {
-            checkSubscriptionStatus()
-          }, 2000)
+          setTimeout(() => setRetryCount(prev => prev + 1), 2000)
         } else {
           setStatus('error')
           setMessage('An error occurred while checking your payment status.')
@@ -137,7 +97,7 @@ function SuccessPageContent() {
       <main className="pt-24 pb-12">
         <div className="flex items-center justify-center min-h-screen">
           <div className="max-w-md w-full mx-4">
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg p-8 text-center">
+            <div className="bg-gradient-to-br from-primary-700/30 to-primary-800/30 border border-accent-500/10 rounded-xl p-8 text-center">
           {/* Success Icon */}
           <div className="mb-6">
             {status === 'checking' && (
@@ -162,7 +122,7 @@ function SuccessPageContent() {
           </div>
 
               {/* Status Message */}
-              <h1 className="text-2xl font-display text-white mb-4">
+              <h1 className="text-2xl font-display text-neutral-0 mb-4">
                 {status === 'checking' && 'Processing Payment'}
                 {status === 'success' && 'Payment Successful!'}
                 {status === 'error' && 'Payment Processing Issue'}
@@ -213,7 +173,7 @@ function SuccessPageContent() {
             <div className="mt-6 text-center">
               <p className="text-sm text-neutral-400">
                 Need help?{' '}
-                <a href="mailto:support@minberai.com" className="text-accent-400 hover:text-accent-300">
+                <a href="mailto:support@minbarai.com" className="text-accent-400 hover:text-accent-300">
                   Contact Support
                 </a>
               </p>

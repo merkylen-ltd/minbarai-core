@@ -71,6 +71,9 @@ export async function GET(request: NextRequest) {
     }
 
     const amountCentsNum = parseInt(amountCents, 10)
+    if (isNaN(amountCentsNum) || amountCentsNum <= 0) {
+      return NextResponse.json({ error: 'amountCents must be a positive integer' }, { status: 400 })
+    }
     let discountCents = 0
 
     if (promo.amount_off_cents) {
@@ -89,7 +92,7 @@ export async function GET(request: NextRequest) {
       originalAmount: amountCentsNum,
       finalAmount: finalAmountCents,
       savings: discountCents,
-      savingsPercent: ((discountCents / amountCentsNum) * 100).toFixed(1),
+      savingsPercent: amountCentsNum > 0 ? ((discountCents / amountCentsNum) * 100).toFixed(1) : '0.0',
     })
   } catch (error) {
     console.error('Validate promo code error:', error)

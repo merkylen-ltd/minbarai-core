@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdmin } from '@/lib/auth/admin'
 import { cookies } from 'next/headers'
 import { stripe } from '@/lib/stripe/config'
+import { validateEmailStrict } from '@/lib/auth/email-validation'
 
 /**
  * GET /api/admin/users
@@ -28,7 +29,9 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20')
     const search = searchParams.get('search') || ''
     const subscriptionStatus = searchParams.get('subscription_status') || ''
-    const sortBy = searchParams.get('sort_by') || 'created_at'
+    const ALLOWED_SORT_FIELDS = ['created_at', 'updated_at', 'email', 'subscription_status', 'subscription_period_end']
+    const rawSortBy = searchParams.get('sort_by') || 'created_at'
+    const sortBy = ALLOWED_SORT_FIELDS.includes(rawSortBy) ? rawSortBy : 'created_at'
     const sortOrder = searchParams.get('sort_order') || 'desc'
     const enrichStripe = searchParams.get('enrich_stripe') === 'true'
 
@@ -149,9 +152,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
+    const emailValidation = validateEmailStrict(email)
+    if (!emailValidation.isValid) {
+      return NextResponse.json({ error: emailValidation.errors[0] || 'Invalid email format' }, { status: 400 })
     }
 
     // Password validation

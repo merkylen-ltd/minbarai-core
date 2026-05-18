@@ -623,6 +623,18 @@ export const useSpeechRecognition = ({
         console.error('[Speech] Failed to start usage session:', err?.message || err)
       })
       
+      // Re-validate subscription — async prompt fetch above can take several seconds
+      // and the session may have expired or been capped in the meantime.
+      if (!isValidForTranslation) {
+        setIsStarting(false)
+        setStatus({
+          connected: false,
+          status: 'error',
+          message: 'Session expired during setup. Please try again.'
+        })
+        return
+      }
+
       // STEP 4: NOW start VoiceFlow immediately with proper configuration
       setIsRecording(true)
       setIsStarting(false)

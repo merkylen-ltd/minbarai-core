@@ -133,7 +133,7 @@ ${targetText}
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `minberai-transcript-${languageState.sourceLanguage}-to-${languageState.targetLanguage}-${isMounted ? new Date().toISOString().split('T')[0] : 'session'}.txt`
+    a.download = `minbarai-transcript-${languageState.sourceLanguage}-to-${languageState.targetLanguage}-${isMounted ? new Date().toISOString().split('T')[0] : 'session'}.txt`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

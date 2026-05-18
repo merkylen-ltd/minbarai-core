@@ -150,7 +150,7 @@ function AuthCodeErrorContent() {
           <div className="mt-6 text-sm text-neutral-400 text-center">
             <p>
               Need help?{' '}
-              <a href="mailto:support@minberai.com" className="text-accent-400 hover:text-accent-300">
+              <a href="mailto:support@minbarai.com" className="text-accent-400 hover:text-accent-300">
                 Contact support
               </a>
             </p>

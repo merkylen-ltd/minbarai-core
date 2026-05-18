@@ -60,7 +60,7 @@ export default async function Dashboard() {
           <div className="mt-8 mb-8">
             {/* Main Title */}
             <div className="mb-8">
-              <h1 className="text-4xl lg:text-5xl font-display text-white font-display leading-tight">
+              <h1 className="text-4xl lg:text-5xl font-display text-neutral-0 leading-tight">
                 Khutba Live Captioning and Translation
               </h1>
               <p className="text-base text-neutral-400 mt-2 font-body">
@@ -119,7 +119,7 @@ export default async function Dashboard() {
           </div>
 
           <ErrorBoundary>
-            <LiveCaptioning userId={user?.id || ''} />
+            {user?.id && <LiveCaptioning userId={user.id} />}
           </ErrorBoundary>
         </div>
       </main>

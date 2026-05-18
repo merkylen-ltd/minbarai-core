@@ -6,10 +6,7 @@ import { requireAdmin } from '@/lib/auth/admin'
 import { cookies } from 'next/headers'
 import { activateAdminInvoiceAccounts, activateSingleUserForInvoice } from '@/lib/admin/activate-invoice'
 import { logNotification } from '@/lib/admin/notifications'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
-})
+import { getStripe } from '@/lib/stripe/config'
 
 /**
  * Reconcile open→paid transitions.
@@ -42,7 +39,7 @@ async function reconcileStatusFromStripe(
       10,
     )
 
-    if (!durationDays || !sessionLimitMinutes) {
+    if (isNaN(durationDays) || durationDays <= 0 || isNaN(sessionLimitMinutes) || sessionLimitMinutes <= 0) {
       return { reconciled: false, reason: 'missing-activation-params' }
     }
 
@@ -89,6 +86,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const stripe = getStripe()
     const cookieStore = await cookies()
     const supabase = createClient(cookieStore)
     const { data: { user } } = await supabase.auth.getUser()

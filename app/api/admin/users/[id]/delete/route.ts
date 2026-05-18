@@ -84,7 +84,7 @@ export async function POST(
     if (clearInvoiceError) {
       console.error(`[Admin API] Failed to clear invoice user refs for ${userId}:`, clearInvoiceError)
       return NextResponse.json(
-        { error: `Failed to prepare user for deletion: ${clearInvoiceError.message}` },
+        { error: 'Failed to prepare user for deletion' },
         { status: 500 }
       )
     }
@@ -96,12 +96,7 @@ export async function POST(
     if (deleteError) {
       console.error(`[Admin API] Failed to delete auth user ${userId}:`, deleteError)
       return NextResponse.json(
-        {
-          error: `Failed to delete user: ${deleteError.message}`,
-          hint: deleteError.message?.includes('foreign key') || deleteError.message?.includes('violates')
-            ? 'User has remaining database references. Check admin_invoices and usage_sessions for this user.'
-            : undefined,
-        },
+        { error: 'Failed to delete user' },
         { status: 500 }
       )
     }

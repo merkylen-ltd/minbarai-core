@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import LogoBrand from '@/components/ui/logo-brand'
 
 interface LanguageConfig {
@@ -69,14 +69,23 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
     }
   }
 
-  // Segment color logic:
-  // - typingText = orange (in progress)
-  // - last completed segment = green (just finished), but only while nothing is typing
-  // - all other completed segments = white (history)
-  const completedSegments = completedTranslations ? completedTranslations.split('\n') : []
-  const lastNonEmptyIdx = !typingText
-    ? completedSegments.reduce((found, s, i) => (s ? i : found), -1)
-    : -1
+  // Segment color logic (both panels):
+  // - orange  = currently in progress (typingText / interimText)
+  // - accent  = last completed segment — stays until the NEXT segment completes
+  // - white   = all earlier history
+  // Memoized: completedTranslations and sourceText only change when new segments
+  // arrive, not on every typing-animation tick — avoids split/reduce on each frame.
+  const { completedSegments, lastNonEmptyIdx } = useMemo(() => {
+    const segs = completedTranslations ? completedTranslations.split('\n') : []
+    const last = segs.reduce((found, s, i) => (s ? i : found), -1)
+    return { completedSegments: segs, lastNonEmptyIdx: last }
+  }, [completedTranslations])
+
+  const { sourceSegments, sourceLastIdx } = useMemo(() => {
+    const segs = sourceText ? sourceText.split('\n') : []
+    const last = segs.reduce((found, s, i) => (s ? i : found), -1)
+    return { sourceSegments: segs, sourceLastIdx: last }
+  }, [sourceText])
 
   return (
     <div 
@@ -122,8 +131,18 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
                   fontSize: `${textSize}px`
                 }}
               >
-                <span className="text-neutral-0">{sourceText}</span>
-                {interimText && <span className="text-accent-300 italic">{interimText}</span>}
+                {sourceSegments.map((seg, i) =>
+                  seg ? (
+                    <span key={i} className={i === sourceLastIdx ? 'text-accent-400' : 'text-neutral-0'}>
+                      {i > 0 ? ' ' : ''}{seg}
+                    </span>
+                  ) : null
+                )}
+                {interimText && (
+                  <span className="text-orange-400">
+                    {sourceSegments.some(Boolean) ? ' ' : ''}{interimText}
+                  </span>
+                )}
                 <span className={`inline-block w-0.5 h-[1em] align-middle bg-accent-400 animate-blink-cursor ${
                   sourceConfig.isRTL ? 'mr-1' : 'ml-1'
                 }`} />
@@ -171,24 +190,24 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
                   <span>Waiting for speech…</span>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3 items-start w-full">
-                  {/* History segments (white) and the most-recently-completed segment (green) */}
+                <p className="leading-relaxed">
+                  {/* White history + accent last-completed — green stays while orange is typing */}
                   {completedSegments.map((segment, i) =>
                     segment ? (
-                      <p key={i} className={i === lastNonEmptyIdx ? 'text-green-400' : 'text-neutral-0'}>
-                        {segment}
-                      </p>
+                      <span key={i} className={i === lastNonEmptyIdx ? 'text-accent-400' : 'text-neutral-0'}>
+                        {i > 0 ? ' ' : ''}{segment}
+                      </span>
                     ) : null
                   )}
 
                   {/* Currently incoming segment — orange while typing */}
                   {typingText && (
-                    <p className="text-orange-400">
-                      {typingText}
+                    <span className="text-orange-400">
+                      {lastNonEmptyIdx !== -1 ? ' ' : ''}{typingText}
                       <span className={`inline-block w-0.5 h-[1em] align-middle bg-orange-400 animate-blink-cursor ${
                         targetConfig.isRTL ? 'mr-1' : 'ml-1'
                       }`} />
-                    </p>
+                    </span>
                   )}
 
                   {/* Idle cursor when not typing but have content */}
@@ -197,7 +216,7 @@ export const TranscriptionDisplay: React.FC<TranscriptionDisplayProps> = ({
                       targetConfig.isRTL ? 'mr-1' : 'ml-1'
                     }`} />
                   )}
-                </div>
+                </p>
               )}
             </div>
           </div>

@@ -38,6 +38,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Allowlist: only permit price IDs that are explicitly configured for this app.
+    // Without this, any authenticated user can supply an arbitrary Stripe price ID
+    // (e.g. a $0.01 test price) and switch to it, causing revenue loss.
+    const allowedPriceIds = [
+      process.env.NEXT_PUBLIC_STRIPE_PRICE_ID,
+      process.env.STRIPE_PRICE_ID_MONTHLY,
+      process.env.STRIPE_PRICE_ID_ANNUAL,
+    ].filter(Boolean) as string[]
+
+    if (allowedPriceIds.length > 0 && !allowedPriceIds.includes(new_price_id)) {
+      return NextResponse.json(
+        { error: 'Invalid plan selected' },
+        { status: 400 }
+      )
+    }
+
     // Validate proration_behavior
     const validProrationBehaviors = ['create_prorations', 'none', 'always_invoice']
     if (!validProrationBehaviors.includes(proration_behavior)) {

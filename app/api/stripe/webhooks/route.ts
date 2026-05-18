@@ -29,7 +29,7 @@ interface WebhookEventStatusUpdate {
 interface UserSubscriptionUpdate {
   subscription_status: string
   updated_at: string
-  subscription_period_end?: string
+  subscription_period_end?: string | null
 }
 
 // Lazy initialization of Supabase client to avoid build-time errors
@@ -505,6 +505,19 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
 
     const supabaseAdmin = getSupabaseAdmin()
+
+    // Verify the user row exists before updating — the auth trigger that creates
+    // public.users may not have fired yet. If missing, throw so Stripe retries.
+    const { data: existingUser, error: lookupError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', user_id)
+      .single()
+
+    if (lookupError || !existingUser) {
+      throw new Error(`User ${user_id} not found in public.users — will retry`)
+    }
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({
@@ -558,15 +571,32 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription) {
     const supabaseAdmin = getSupabaseAdmin()
     const dbStatus = subscription.status === 'trialing' ? 'active' : subscription.status
 
+    const stripePeriodEnd = subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000).toISOString()
+      : null
+
+    // Read the current DB period_end before writing. Admin invoice activations can
+    // extend subscription_period_end beyond what Stripe knows about. Never overwrite
+    // a later period_end with an earlier one — that would silently revoke paid access.
+    const { data: currentUser } = await supabaseAdmin
+      .from('users')
+      .select('subscription_period_end')
+      .eq('id', supabaseUserId)
+      .single()
+
+    const currentPeriodEnd = currentUser?.subscription_period_end
+    const newPeriodEnd =
+      currentPeriodEnd && stripePeriodEnd && currentPeriodEnd > stripePeriodEnd
+        ? currentPeriodEnd
+        : stripePeriodEnd
+
     const { error } = await supabaseAdmin
       .from('users')
       .update({
         subscription_id: subscription.id,
         subscription_status: dbStatus,
         customer_id: customer.id,
-        subscription_period_end: subscription.current_period_end
-          ? new Date(subscription.current_period_end * 1000).toISOString()
-          : null,
+        subscription_period_end: newPeriodEnd,
         updated_at: new Date().toISOString(),
       })
       .eq('id', supabaseUserId)
@@ -605,7 +635,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
         const { data: userData, error: userError } = await supabaseAdmin
           .from('users')
           .select('id')
-          .eq('email', customer.email)
+          .eq('email', customer.email.toLowerCase())
           .single()
         
         if (userError || !userData) {
@@ -620,19 +650,19 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
       }
     }
 
-    // Handle subscription period end
-    let subscriptionPeriodEnd: string | null = null
-    if (subscription.current_period_end) {
-      subscriptionPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString()
-    }
+    // Always write subscription_period_end — even if null — so the DB reflects
+    // what Stripe says rather than whatever was there before. Using a falsy guard
+    // could leave a future period_end in the DB, accidentally granting access
+    // after an immediate cancellation.
+    const subscriptionPeriodEnd: string | null =
+      subscription.current_period_end != null
+        ? new Date(subscription.current_period_end * 1000).toISOString()
+        : null
 
     const updateData: UserSubscriptionUpdate = {
       subscription_status: 'canceled',
+      subscription_period_end: subscriptionPeriodEnd,
       updated_at: new Date().toISOString(),
-    }
-    
-    if (subscriptionPeriodEnd) {
-      updateData.subscription_period_end = subscriptionPeriodEnd
     }
 
     const supabaseAdmin = getSupabaseAdmin()
@@ -926,12 +956,18 @@ async function handleAdminInvoicePaid(invoice: Stripe.Invoice) {
     // 3. Extract activation parameters — Stripe metadata is primary source,
     //    DB record is the fallback (metadata can be absent if invoice was created
     //    outside the normal flow or metadata was stripped by Stripe).
+    const parsedDurationDays = parseInt(invoice.metadata?.duration_days || '', 10)
     const durationDays =
-      parseInt(invoice.metadata?.duration_days || '0', 10) || adminInvoice.duration_days
+      Number.isFinite(parsedDurationDays) && parsedDurationDays > 0
+        ? parsedDurationDays
+        : adminInvoice.duration_days
+    const parsedSessionLimit = parseInt(invoice.metadata?.session_limit_minutes || '', 10)
     const sessionLimitMinutes =
-      parseInt(invoice.metadata?.session_limit_minutes || '0', 10) || adminInvoice.session_limit_minutes
+      Number.isFinite(parsedSessionLimit) && parsedSessionLimit > 0
+        ? parsedSessionLimit
+        : adminInvoice.session_limit_minutes
 
-    if (!durationDays || !sessionLimitMinutes) {
+    if (isNaN(durationDays) || durationDays <= 0 || isNaN(sessionLimitMinutes) || sessionLimitMinutes <= 0) {
       throw new Error(`Missing duration_days or session_limit_minutes for admin invoice ${adminInvoiceId}`)
     }
 

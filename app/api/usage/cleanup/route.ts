@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 
 import { USAGE_SESSION_TTL_SECONDS } from '@/lib/usage/constants'
 
@@ -78,7 +79,12 @@ function requireCronAuth(request: Request): NextResponse | null {
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
   }
   const authHeader = request.headers.get('authorization')
-  if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+  const expected = `Bearer ${cronSecret}`
+  const match =
+    authHeader &&
+    authHeader.length === expected.length &&
+    timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+  if (!match) {
     console.warn('[Cleanup] Unauthorized request')
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

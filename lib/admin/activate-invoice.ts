@@ -29,7 +29,7 @@ export async function activateSingleUserForInvoice(
   const { data: existingUser } = await supabaseAdmin
     .from('users')
     .select('id, subscription_period_end')
-    .eq('email', recipientEmail)
+    .eq('email', recipientEmail.toLowerCase().trim())
     .single()
 
   const now = new Date()
@@ -78,7 +78,7 @@ export async function activateSingleUserForInvoice(
     .from('users')
     .upsert({
       id: userId,
-      email: recipientEmail,
+      email: recipientEmail.toLowerCase().trim(),
       ...updatePayload,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

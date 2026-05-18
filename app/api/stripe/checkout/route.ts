@@ -287,10 +287,13 @@ export async function POST(request: Request) {
         })
 
       if (upsertError) {
-        console.log('Checkout: Error upserting user:', upsertError)
-      } else {
-        console.log('Checkout: User record created/updated successfully')
+        console.error('Checkout: Error upserting user:', upsertError)
+        return NextResponse.json(
+          { error: 'Failed to set up user account. Please try again.' },
+          { status: 500 }
+        )
       }
+      console.log('Checkout: User record created/updated successfully')
     }
 
     // Generate URLs for Stripe checkout

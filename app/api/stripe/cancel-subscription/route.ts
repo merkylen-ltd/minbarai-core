@@ -138,10 +138,7 @@ export async function POST(request: NextRequest) {
     console.error('Error canceling subscription:', error)
     
     return NextResponse.json(
-      { 
-        error: 'Failed to cancel subscription',
-        message: error.message || 'An unexpected error occurred'
-      },
+      { error: 'Failed to cancel subscription' },
       { status: 500 }
     )
   }
@@ -254,10 +251,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error: any) {
     console.error('Error with immediate cancellation:', error)
     return NextResponse.json(
-      { 
-        error: 'Failed to cancel subscription immediately',
-        message: error.message || 'An unexpected error occurred'
-      },
+      { error: 'Failed to cancel subscription immediately' },
       { status: 500 }
     )
   }

@@ -43,23 +43,37 @@ export async function POST(
       return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
     }
 
-    // Reactivate subscription in Stripe
+    // Reactivate subscription in Stripe and fetch the current period end
+    let newPeriodEnd: string | null = null
     if (stripe) {
       try {
-        await stripe.subscriptions.update(userData.subscription_id, {
+        const reactivated = await stripe.subscriptions.update(userData.subscription_id, {
           cancel_at_period_end: false,
         })
+        newPeriodEnd = new Date(reactivated.current_period_end * 1000).toISOString()
       } catch (stripeError) {
         console.error('[Admin API] Error reactivating Stripe subscription:', stripeError)
         return NextResponse.json({ error: 'Failed to reactivate subscription in Stripe' }, { status: 500 })
       }
     }
 
+    // Restore subscription_period_end so middleware grants access again.
+    // If we have a fresh value from Stripe, use it; otherwise fall back to
+    // the existing DB value (covers the case where Stripe is unavailable but
+    // the period_end was never nulled — still better than leaving it in the past).
+    const periodEndToWrite =
+      newPeriodEnd ??
+      (userData.subscription_period_end &&
+      new Date(userData.subscription_period_end) > new Date()
+        ? userData.subscription_period_end
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString())
+
     // Update database
     const { error: updateError } = await adminClient
       .from('users')
       .update({
         subscription_status: 'active',
+        subscription_period_end: periodEndToWrite,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId)

@@ -23,6 +23,22 @@ interface UserSubscriptionData {
   subscription_status: string | null
   subscription_period_end: string | null
   is_suspended: boolean
+  customer_id: string | null
+}
+
+/**
+ * Returns true if this account's active subscription has expired.
+ * For admin-created accounts (no Stripe customer_id) we enforce subscription_period_end
+ * directly, because there are no Stripe webhooks to flip the status automatically.
+ * For Stripe-managed accounts we skip the check: Stripe updates subscription_status
+ * via webhook at renewal, so checking period_end would produce false-positives during
+ * the brief window between renewal and webhook delivery.
+ */
+function isAdminAccountExpired(userData: UserSubscriptionData): boolean {
+  if (userData.subscription_status !== 'active') return false
+  if (userData.customer_id) return false           // Stripe account — skip
+  if (!userData.subscription_period_end) return false // No expiry date set
+  return new Date() > new Date(userData.subscription_period_end)
 }
 
 export async function middleware(request: NextRequest) {
@@ -76,7 +92,7 @@ export async function middleware(request: NextRequest) {
   if (needsUserCheck && user) {
     const { data, error } = await supabase
       .from('users')
-      .select('subscription_status, subscription_period_end, is_suspended')
+      .select('subscription_status, subscription_period_end, is_suspended, customer_id')
       .eq('id', user.id)
       .single()
 
@@ -109,6 +125,12 @@ export async function middleware(request: NextRequest) {
       }
     }
 
+    // Admin-managed accounts: enforce subscription_period_end even when status='active'
+    // (Stripe accounts are self-managing via webhooks — see isAdminAccountExpired)
+    if (isAdminAccountExpired(userData)) {
+      return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
+    }
+
     // Allow access for incomplete status (payment processing)
     if (userData.subscription_status === 'incomplete') {
       return securedResponse
@@ -127,9 +149,9 @@ export async function middleware(request: NextRequest) {
 
     // Mirror the dashboard middleware exactly: only redirect to /dashboard when
     // the user would actually be allowed in (avoids a /subscribe ↔ /dashboard loop
-    // for canceled users whose period has expired).
+    // for canceled users whose period has expired, or expired admin accounts).
     const hasValidSub =
-      userData.subscription_status === 'active' ||
+      (userData.subscription_status === 'active' && !isAdminAccountExpired(userData)) ||
       userData.subscription_status === 'incomplete' ||
       (userData.subscription_status === 'canceled' &&
         isCancelledSubscriptionActive(userData.subscription_status, userData.subscription_period_end))
@@ -152,8 +174,9 @@ export async function middleware(request: NextRequest) {
         return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/subscribe', request.url)))
       }
       
-      // Allow access for incomplete status (payment processing) or valid subscription
-      if (userData.subscription_status === 'incomplete' || isValidSubscriptionStatus(userData.subscription_status)) {
+      // Allow access for incomplete status (payment processing) or valid non-expired subscription
+      if (userData.subscription_status === 'incomplete' ||
+          (isValidSubscriptionStatus(userData.subscription_status) && !isAdminAccountExpired(userData))) {
         return securityHeadersMiddleware(request, NextResponse.redirect(new URL('/dashboard', request.url)))
       }
     }

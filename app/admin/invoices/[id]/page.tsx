@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { ArrowLeft } from 'lucide-react'
@@ -35,11 +35,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
   const [actionLoading, setActionLoading] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchInvoice()
-  }, [])
-
-  const fetchInvoice = async () => {
+  const fetchInvoice = useCallback(async () => {
     try {
       setLoading(true)
       setError('')
@@ -63,7 +59,11 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
     } finally {
       setLoading(false)
     }
-  }
+  }, [params.id])
+
+  useEffect(() => {
+    fetchInvoice()
+  }, [fetchInvoice])
 
   const handleResend = async () => {
     if (!confirm('Resend invoice email to recipient?')) return

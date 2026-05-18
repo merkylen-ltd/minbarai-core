@@ -55,7 +55,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', userId)
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+      console.error('[Admin API] Error updating session limit:', updateError)
+      return NextResponse.json({ error: 'Failed to update session limit' }, { status: 500 })
     }
 
     return NextResponse.json({
@@ -66,7 +67,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   } catch (error) {
     console.error('[Admin API] Exception in PATCH /api/admin/users/[id]/session-limit:', error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { error: error instanceof Error && error.name === 'AdminAccessDeniedError' ? error.message : 'Internal server error' },
       { status: error instanceof Error && error.name === 'AdminAccessDeniedError' ? 403 : 500 }
     )
   }
