@@ -60,5 +60,13 @@ function validateEnvironment() {
   console.log('\n✅ Build environment validation passed!')
 }
 
+// Skip validation in CI — env vars are injected at runtime by the hosting platform.
+// The build itself only needs non-empty values to compile; real secrets are never
+// committed or logged here.
+if (process.env.CI === 'true' || process.env.SKIP_ENV_VALIDATION === 'true') {
+  console.log('ℹ️  CI environment detected — skipping build env validation.')
+  process.exit(0)
+}
+
 // Run validation
 validateEnvironment()
