@@ -141,25 +141,34 @@ describe('POST /api/admin/users/[id]/suspend', () => {
     const capturedUpdates: any[] = []
 
     const adminClientInstance = {
-      from: jest.fn().mockImplementation(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: { email: 'user@example.com', subscription_status: 'active' },
-          error: null,
-        }),
-        update: jest.fn().mockImplementation((data: any) => {
-          capturedUpdates.push(data)
-          return { eq: jest.fn().mockResolvedValue({ error: null }) }
-        }),
-      })),
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'usage_sessions') {
+          return {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+          }
+        }
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: { email: 'user@example.com', subscription_status: 'active' },
+            error: null,
+          }),
+          update: jest.fn().mockImplementation((data: any) => {
+            capturedUpdates.push(data)
+            return { eq: jest.fn().mockResolvedValue({ error: null }) }
+          }),
+        }
+      }),
     }
 
     mockAdminClient.mockReturnValue(adminClientInstance)
     mockAuthClient.mockReturnValue({
       auth: {
         getUser: jest.fn().mockResolvedValue({
-          data: { user: { email: 'admin@minbarai.com' } },
+          data: { user: { email: 'admin@minbarai.com', id: 'admin-id' } },
         }),
       },
     })
@@ -222,7 +231,14 @@ describe('POST /api/admin/users/[id]/activate', () => {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({
-          data: { email: 'user@example.com' },
+          // customer_id present → Stripe-managed account → production code skips
+          // subscription_status override (Stripe handles that via webhooks)
+          data: {
+            email: 'user@example.com',
+            customer_id: 'cus_stripe_abc',
+            subscription_period_end: new Date(Date.now() + 86400000).toISOString(),
+            subscription_status: 'active',
+          },
           error: null,
         }),
         update: jest.fn().mockImplementation((data: any) => {
@@ -251,7 +267,7 @@ describe('POST /api/admin/users/[id]/activate', () => {
     expect(capturedUpdates).toHaveLength(1)
     expect(capturedUpdates[0].is_suspended).toBe(false)
 
-    // Must NOT set subscription_status — Stripe owns that field
+    // Stripe-managed account: must NOT set subscription_status (Stripe owns it via webhooks)
     expect(capturedUpdates[0].subscription_status).toBeUndefined()
     // Must NOT set 'expired' — that was the old broken logic
     expect(capturedUpdates[0].subscription_status).not.toBe('expired')
@@ -477,7 +493,9 @@ describe('POST /api/admin/subscriptions/[id]/reactivate', () => {
       },
     })
 
-    ;(mockStripe!.subscriptions.update as jest.Mock).mockResolvedValue({})
+    ;(mockStripe!.subscriptions.update as jest.Mock).mockResolvedValue({
+      current_period_end: Math.floor(Date.now() / 1000) + 2592000, // 30 days from now
+    })
 
     const req = makeRequest({})
     const res = await reactivateRoute(req as any, { params: fakeParams('user-123') })

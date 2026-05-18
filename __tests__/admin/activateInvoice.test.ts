@@ -23,16 +23,30 @@ type UpdateCall = {
   filter: { column: string; value: unknown }
 }
 
-function mockSupabase() {
+function mockSupabase(overrideUpdateResult?: { error: unknown }) {
   const updateCalls: UpdateCall[] = []
+
+  const makeEqResult = (table: string, payload: Record<string, unknown>, column: string, value: unknown) => {
+    const result = overrideUpdateResult ?? { error: null }
+    // Must be both awaitable (.eq() direct await) and chainable (.eq().is())
+    const obj = {
+      is: async () => {
+        updateCalls.push({ table, payload, filter: { column, value } })
+        return result
+      },
+      // Make the object itself thenable so `await baseQuery` works
+      then(resolve: (v: typeof result) => unknown, reject?: (e: unknown) => unknown) {
+        updateCalls.push({ table, payload, filter: { column, value } })
+        return Promise.resolve(result).then(resolve, reject)
+      },
+    }
+    return obj
+  }
 
   const client = {
     from: (table: string) => ({
       update: (payload: Record<string, unknown>) => ({
-        eq: async (column: string, value: unknown) => {
-          updateCalls.push({ table, payload, filter: { column, value } })
-          return { error: null }
-        },
+        eq: (column: string, value: unknown) => makeEqResult(table, payload, column, value),
       }),
     }),
   }
@@ -115,7 +129,12 @@ describe('activateAdminInvoiceAccounts', () => {
       const failingClient = {
         from: () => ({
           update: () => ({
-            eq: async () => ({ error: new Error('db down') }),
+            eq: () => ({
+              is: async () => ({ error: new Error('db down') }),
+              then(resolve: Function, reject?: Function) {
+                return Promise.resolve({ error: new Error('db down') }).then(resolve as any, reject as any)
+              },
+            }),
           }),
         }),
       }

@@ -209,7 +209,7 @@ describe('POST /api/admin/invoices/[id]/void', () => {
       // Every suspension sets all three critical fields
       for (const call of state.userUpdateCalls) {
         expect(call.payload.is_suspended).toBe(true)
-        expect(call.payload.subscription_status).toBe('cancelled')
+        expect(call.payload.subscription_status).toBe('canceled')
         expect(call.payload.subscription_period_end).toBeDefined()
       }
 

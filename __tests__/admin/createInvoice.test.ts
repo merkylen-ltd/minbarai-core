@@ -96,6 +96,8 @@ function makeAdminClient(state: DbState) {
         }),
       })),
     })),
+    // Atomic promo code redemption — returns true (slot claimed) by default
+    rpc: jest.fn(async (_fn: string, _args: unknown) => ({ data: true, error: null })),
   }
 }
 
@@ -177,9 +179,9 @@ describe('POST /api/admin/invoices — admin money-path', () => {
     })
 
     it('returns 400 when required fields are missing', async () => {
-      const res = await createInvoice(
-        makeRequest({ ...validBody, amount: undefined } as unknown as typeof validBody),
-      )
+      // Omit 'currency' to trigger the "Missing required fields" guard
+      const { currency: _omit, ...bodyWithoutCurrency } = validBody
+      const res = await createInvoice(makeRequest(bodyWithoutCurrency as any))
       expect(res.status).toBe(400)
       const body = await res.json()
       expect(body.error).toMatch(/required/i)
@@ -581,7 +583,7 @@ describe('POST /api/admin/invoices — admin money-path', () => {
   // =========================================================================
 
   describe('promo redemption tracking', () => {
-    it('increments redemptions_count by 1 after successful invoice creation', async () => {
+    it('calls use_promo_code RPC after successful invoice creation', async () => {
       state.promoLookup = {
         data: {
           id: 'promo_count',
@@ -594,11 +596,11 @@ describe('POST /api/admin/invoices — admin money-path', () => {
         error: null,
       }
 
+      const adminClientInstance = (createAdminClient as jest.Mock).mock.results[0]?.value
       await createInvoice(makeRequest({ ...validBody, promoCodeId: 'promo_count' }))
 
-      const updateCall = state.updateCalls.find(c => c.table === 'promo_codes')
-      expect(updateCall).toBeDefined()
-      expect(updateCall!.payload.redemptions_count).toBe(43)
+      const client = (createAdminClient as jest.Mock).mock.results[0]?.value
+      expect(client.rpc).toHaveBeenCalledWith('use_promo_code', { promo_id: 'promo_count' })
     })
   })
 })

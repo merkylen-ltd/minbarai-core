@@ -47,6 +47,7 @@ jest.mock('@supabase/supabase-js', () => ({
         }),
       }),
     })),
+    rpc: jest.fn().mockResolvedValue({ data: [{ is_allowed: true }], error: null }),
   })),
 }))
 
@@ -111,7 +112,8 @@ function setupSupabaseMocks({
   })
   const insertMock = jest.fn().mockReturnValue({ select: insertSelectMock })
 
-  const singleMock = jest.fn().mockResolvedValue({ data: null, error: null })
+  // Return a minimal user row so the "user exists" lookup in checkout handler passes
+  const singleMock = jest.fn().mockResolvedValue({ data: { id: 'user-uuid-abc' }, error: null })
   const selectEqMock = jest.fn().mockReturnValue({ single: singleMock })
   const selectMock = jest.fn().mockReturnValue({ eq: selectEqMock })
 
@@ -121,9 +123,15 @@ function setupSupabaseMocks({
     select: selectMock,
   })
 
-  ;(createClient as jest.Mock).mockReturnValue({ from: fromMock })
+  // Rate-limit RPC: return is_allowed=true so the webhook passes rate limiting
+  const rpcMock = jest.fn().mockResolvedValue({
+    data: [{ is_allowed: true }],
+    error: null,
+  })
 
-  return { fromMock, insertMock, updateMock, eqMock }
+  ;(createClient as jest.Mock).mockReturnValue({ from: fromMock, rpc: rpcMock })
+
+  return { fromMock, insertMock, updateMock, eqMock, rpcMock }
 }
 
 // ---------------------------------------------------------------------------
