@@ -45,6 +45,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(body.recipientEmail)) {
+      return NextResponse.json(
+        { error: 'Invalid recipient email format' },
+        { status: 400 }
+      )
+    }
+
     if (typeof body.amount !== 'number' || body.amount <= 0) {
       return NextResponse.json(
         { error: 'amount must be a positive number' },
@@ -72,6 +80,13 @@ export async function POST(request: NextRequest) {
     const accountEmails = Array.isArray(body.accountEmails)
       ? body.accountEmails.map(e => e.toLowerCase().trim()).filter(Boolean)
       : []
+
+    if (accountEmails.length > 100) {
+      return NextResponse.json(
+        { error: 'Maximum 100 accounts per bulk invoice' },
+        { status: 400 }
+      )
+    }
 
     // Validate promo code if provided
     let promoCodeRecord = null
@@ -298,9 +313,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Increment promo code redemptions atomically (avoids concurrent under-count)
+    // Atomic check-and-increment: guards against concurrent requests both passing
+    // the optimistic check above. Returns false if max_redemptions already reached.
     if (body.promoCodeId) {
-      await adminClient.rpc('increment_promo_redemptions', { promo_id: body.promoCodeId })
+      const { data: claimed } = await adminClient.rpc('use_promo_code', { promo_id: body.promoCodeId })
+      if (!claimed) {
+        await stripe.invoices.voidInvoice(retrievedInvoice.id)
+        return NextResponse.json(
+          { error: 'Promo code has reached its maximum redemptions' },
+          { status: 409 }
+        )
+      }
     }
 
     await logNotification({
