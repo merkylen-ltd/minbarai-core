@@ -16,6 +16,20 @@ export const stripe = process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET
     })
   : null
 
+// Lazy getter for admin routes that require Stripe — throws clearly if key is missing
+// rather than silently initializing with an empty string and failing on first API call.
+let _adminStripe: Stripe | null = null
+export function getStripe(): Stripe {
+  if (!_adminStripe) {
+    const key = process.env.STRIPE_SECRET_KEY
+    if (!key || key === 'your_stripe_secret_key') {
+      throw new Error('STRIPE_SECRET_KEY is not configured')
+    }
+    _adminStripe = new Stripe(key, { apiVersion: '2023-10-16' })
+  }
+  return _adminStripe
+}
+
 // Use pricing config for default price ID
 export const PRICE_ID = PRICING_CONFIG.defaultPriceId
 
