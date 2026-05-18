@@ -25,6 +25,15 @@ jobs:
         run: npm audit --audit-level=moderate
 
       - name: Build application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_STRIPE_PRICE_ID: ${{ secrets.NEXT_PUBLIC_STRIPE_PRICE_ID }}
+          NEXT_PUBLIC_VOICEFLOW_WS_URL: ${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL }}
+          NEXT_PUBLIC_VOICEFLOW_WS_TOKEN: ${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}
+          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
         run: npm run build
 
       - name: Deploy to Vercel Production
