@@ -1,9 +1,15 @@
-name: Deploy to Vercel
+name: Deploy to Cloud Run (Production)
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: gen-lang-client-0842740671
+  REGION: europe-west1
+  SERVICE_NAME: minbarai-pro
+  SERVICE_ACCOUNT: minberai-service-account@gen-lang-client-0842740671.iam.gserviceaccount.com
 
 jobs:
   deploy:
@@ -12,37 +18,77 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          node-version: '18'
-          cache: 'npm'
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Run security audit
-        run: npm audit --audit-level=moderate
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker --quiet
 
-      - name: Build application
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_STRIPE_PRICE_ID: ${{ secrets.NEXT_PUBLIC_STRIPE_PRICE_ID }}
-          NEXT_PUBLIC_VOICEFLOW_WS_URL: ${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL }}
-          NEXT_PUBLIC_VOICEFLOW_WS_TOKEN: ${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}
-          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
-          NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
-        run: npm run build
+      - name: Build Docker image
+        run: |
+          docker build --no-cache \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}" \
+            --build-arg NEXT_PUBLIC_STRIPE_PRICE_ID="${{ secrets.NEXT_PUBLIC_STRIPE_PRICE_ID }}" \
+            --build-arg NEXT_PUBLIC_VOICEFLOW_WS_URL="${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL }}" \
+            --build-arg NEXT_PUBLIC_VOICEFLOW_WS_TOKEN="${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}" \
+            --build-arg NEXT_PUBLIC_SITE_URL="${{ secrets.NEXT_PUBLIC_SITE_URL }}" \
+            --build-arg NEXTAUTH_URL="${{ secrets.NEXT_PUBLIC_SITE_URL }}" \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest .
 
-      - name: Deploy to Vercel Production
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod'
+      - name: Push Docker image
+        run: |
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest
 
-      - name: Deployment Status
-        run: echo "🚀 Successfully deployed to Vercel Production!"
+      - name: Deploy to Cloud Run
+        run: |
+          ENV_FILE=$(mktemp /tmp/cloud-run-env-XXXXXX.yaml)
+          cat > "$ENV_FILE" << ENVEOF
+          NODE_ENV: "production"
+          NEXT_PUBLIC_SITE_URL: "${{ secrets.NEXT_PUBLIC_SITE_URL }}"
+          NEXTAUTH_URL: "${{ secrets.NEXT_PUBLIC_SITE_URL }}"
+          NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}"
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}"
+          NEXT_PUBLIC_STRIPE_PRICE_ID: "${{ secrets.NEXT_PUBLIC_STRIPE_PRICE_ID }}"
+          NEXT_PUBLIC_VOICEFLOW_WS_URL: "${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL }}"
+          NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD: "${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD }}"
+          NEXT_PUBLIC_VOICEFLOW_WS_TOKEN: "${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}"
+          ADMIN_EMAILS: "${{ secrets.ADMIN_EMAILS }}"
+          RESEND_API_KEY: "${{ secrets.RESEND_API_KEY }}"
+          RESEND_FROM_EMAIL: "${{ secrets.RESEND_FROM_EMAIL }}"
+          GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"
+          CRON_SECRET: "${{ secrets.CRON_SECRET }}"
+          ENVEOF
+
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 2Gi \
+            --cpu 2 \
+            --min-instances 1 \
+            --max-instances 50 \
+            --concurrency 100 \
+            --timeout 300 \
+            --env-vars-file "$ENV_FILE" \
+            --set-secrets STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest \
+            --set-secrets STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest \
+            --set-secrets SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest \
+            --service-account ${{ env.SERVICE_ACCOUNT }} \
+            --quiet
+
+          rm -f "$ENV_FILE"
+
+      - name: Deployment status
+        run: echo "Successfully deployed to Cloud Run production (minbarai-pro)"
