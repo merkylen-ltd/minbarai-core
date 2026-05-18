@@ -246,15 +246,14 @@ describe('POST /api/admin/users/[id]/delete', () => {
       expect(adminClient.auth.admin.deleteUser).not.toHaveBeenCalled()
     })
 
-    it('returns 500 with FK hint when auth.deleteUser fails with FK error', async () => {
+    it('returns 500 with generic message when auth.deleteUser fails', async () => {
       state.deleteAuthResult = { error: { message: 'violates foreign key constraint' } }
 
       const res = await deleteUser(req(), params)
       const body = await res.json()
 
       expect(res.status).toBe(500)
-      expect(body.error).toMatch(/foreign key/i)
-      expect(body.hint).toMatch(/remaining database references/i)
+      expect(body.error).toBe('Failed to delete user')
     })
 
     it('returns 401 when unauthenticated', async () => {
