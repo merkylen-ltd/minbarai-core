@@ -1,8 +1,10 @@
-name: Deploy to Cloud Run (Production)
+name: Deploy (manual fallback)
+
+# Manual emergency deploy to Cloud Run production.
+# Normal deployments are handled automatically by Google Cloud Build
+# via the GCP GitHub integration (cloudbuild.yaml).
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -15,19 +17,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker --quiet
+      - run: gcloud auth configure-docker --quiet
 
       - name: Build Docker image
         run: |
@@ -40,37 +39,18 @@ jobs:
             --build-arg NEXT_PUBLIC_VOICEFLOW_WS_TOKEN="${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}" \
             --build-arg NEXT_PUBLIC_SITE_URL="${{ secrets.NEXT_PUBLIC_SITE_URL }}" \
             --build-arg NEXTAUTH_URL="${{ secrets.NEXT_PUBLIC_SITE_URL }}" \
-            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest .
+            -t gcr.io/${{ env.PROJECT_ID }}/minbarai:${{ github.sha }} \
+            -t gcr.io/${{ env.PROJECT_ID }}/minbarai:latest .
 
       - name: Push Docker image
         run: |
-          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:latest
+          docker push gcr.io/${{ env.PROJECT_ID }}/minbarai:${{ github.sha }}
+          docker push gcr.io/${{ env.PROJECT_ID }}/minbarai:latest
 
       - name: Deploy to Cloud Run
         run: |
-          ENV_FILE=$(mktemp /tmp/cloud-run-env-XXXXXX.yaml)
-          cat > "$ENV_FILE" << ENVEOF
-          NODE_ENV: "production"
-          NEXT_PUBLIC_SITE_URL: "${{ secrets.NEXT_PUBLIC_SITE_URL }}"
-          NEXTAUTH_URL: "${{ secrets.NEXT_PUBLIC_SITE_URL }}"
-          NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}"
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}"
-          NEXT_PUBLIC_STRIPE_PRICE_ID: "${{ secrets.NEXT_PUBLIC_STRIPE_PRICE_ID }}"
-          NEXT_PUBLIC_VOICEFLOW_WS_URL: "${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL }}"
-          NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD: "${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL_PROD }}"
-          NEXT_PUBLIC_VOICEFLOW_WS_TOKEN: "${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}"
-          ADMIN_EMAILS: "${{ secrets.ADMIN_EMAILS }}"
-          RESEND_API_KEY: "${{ secrets.RESEND_API_KEY }}"
-          RESEND_FROM_EMAIL: "${{ secrets.RESEND_FROM_EMAIL }}"
-          GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"
-          CRON_SECRET: "${{ secrets.CRON_SECRET }}"
-          ENVEOF
-
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --image gcr.io/${{ env.PROJECT_ID }}/minbarai:${{ github.sha }} \
             --platform managed \
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
@@ -81,14 +61,11 @@ jobs:
             --max-instances 50 \
             --concurrency 100 \
             --timeout 300 \
-            --env-vars-file "$ENV_FILE" \
-            --set-secrets STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest \
-            --set-secrets STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest \
-            --set-secrets SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest \
+            --update-env-vars "^|^NODE_ENV=production|NEXT_PUBLIC_SITE_URL=${{ secrets.NEXT_PUBLIC_SITE_URL }}|NEXTAUTH_URL=${{ secrets.NEXT_PUBLIC_SITE_URL }}|NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}|NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}|NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}|NEXT_PUBLIC_STRIPE_PRICE_ID=${{ secrets.NEXT_PUBLIC_STRIPE_PRICE_ID }}|NEXT_PUBLIC_VOICEFLOW_WS_URL=${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_URL }}|NEXT_PUBLIC_VOICEFLOW_WS_TOKEN=${{ secrets.NEXT_PUBLIC_VOICEFLOW_WS_TOKEN }}|ADMIN_EMAILS=${{ secrets.ADMIN_EMAILS }}|RESEND_FROM_EMAIL=${{ secrets.RESEND_FROM_EMAIL }}|CRON_SECRET=${{ secrets.CRON_SECRET }}" \
+            --set-secrets "STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest" \
+            --set-secrets "STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest" \
+            --set-secrets "SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest" \
+            --set-secrets "RESEND_API_KEY=RESEND_API_KEY:latest" \
+            --set-secrets "GEMINI_API_KEY=GEMINI_API_KEY:latest" \
             --service-account ${{ env.SERVICE_ACCOUNT }} \
             --quiet
-
-          rm -f "$ENV_FILE"
-
-      - name: Deployment status
-        run: echo "Successfully deployed to Cloud Run production (minbarai-pro)"
